@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZenR-NewTab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Oxanium:wght@400;500;600;700&family=Share+Tech+Mono&family=Josefin+Sans:wght@300;400;600;700&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+<!-- Background Layer -->
+  <div id="bg-layer">
+    <video id="bg-video" autoplay muted loop playsinline></video>
+  </div>
+  <div id="bg-overlay"></div>
+
+  <!-- App Shell -->
+  <div id="app">
+
+    <!-- TOP BAR -->
+    <header id="topbar">
+      <div id="brand">
+        <span class="brand-z">Z</span><span class="brand-rest">enR</span>
+      </div>
+
+      <nav id="pages-nav">
+        <button class="scroll-btn" id="scroll-left" title="Scroll left">&#8249;</button>
+        <div id="pages-tabs-wrap">
+          <div id="pages-tabs"></div>
+        </div>
+        <button class="scroll-btn" id="scroll-right" title="Scroll right">&#8250;</button>
+        <button class="add-page-btn" id="add-page-btn" title="Add page">&#43;</button>
+        <button class="add-board-topbar-btn" id="add-board-fab" title="Add board">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Board
+        </button>
+      </nav>
+
+      <div id="topbar-actions">
+        <button class="tb-btn icon-btn" id="btn-new-note" title="New note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </button>
+        <button class="tb-btn icon-btn" id="btn-settings" title="Menu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main id="main-content">
+      <div id="boards-grid"></div>
+      <div id="empty-page" class="hidden">
+        <div class="empty-icon">📋</div>
+        <p>No boards yet</p>
+        <button class="btn-accent" id="empty-add-board-btn">+ Add First Board</button>
+      </div>
+    </main>
+
+  </div><!-- /app -->
+
+
+  <!-- ===== MODAL OVERLAY ===== -->
+  <div id="modal-overlay" class="hidden">
+
+    <!-- PAGE MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-page">
+      <div class="modal-header">
+        <h3 id="modal-page-title">New Page</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label>Page Name</label>
+        <input type="text" id="page-name-input" class="glass-input" placeholder="e.g. Work, Entertainment…" maxlength="32" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost modal-cancel">Cancel</button>
+        <button class="btn-accent" id="page-confirm-btn">Create</button>
+      </div>
+    </div>
+
+    <!-- BOARD MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-board">
+      <div class="modal-header">
+        <h3 id="modal-board-title">New Board</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label>Board Name</label>
+        <input type="text" id="board-name-input" class="glass-input" placeholder="e.g. AI Tools, Social Media…" maxlength="40" />
+        <div id="board-tint-section" class="hidden">
+          <label>Tint Colour</label>
+          <div class="board-modal-tint-row">
+            <input type="color" id="board-tint-color" value="#ffffff" />
+            <span id="board-tint-hex">#ffffff</span>
+            <button class="btn-ghost btn-sm" id="board-tint-reset-btn" type="button">&#8634; Remove tint</button>
+          </div>
+          <label>Intensity &nbsp;<span id="board-tint-opacity-val" class="tint-val-badge">25%</span></label>
+          <input type="range" id="board-tint-opacity" min="5" max="80" step="5" value="25" class="board-tint-range" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost modal-cancel">Cancel</button>
+        <button class="btn-accent" id="board-confirm-btn">Create</button>
+      </div>
+    </div>
+
+    <!-- LINK MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-link">
+      <div class="modal-header">
+        <h3 id="modal-link-title">Add Link</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label>URL</label>
+        <input type="url" id="link-url-input" class="glass-input" placeholder="https://…" />
+        <label>Title <span class="label-hint">(optional — auto-derived from URL)</span></label>
+        <input type="text" id="link-title-input" class="glass-input" placeholder="Site name…" maxlength="60" />
+        <label>Icon</label>
+        <div class="link-icon-row">
+          <select id="link-icon-type" class="glass-input link-icon-select">
+            <option value="favicon">Website favicon</option>
+            <option value="url">URL</option>
+            <option value="local">Local file</option>
+          </select>
+          <img id="link-icon-preview" class="link-icon-preview hidden" src="" alt="icon preview" />
+        </div>
+        <div id="link-icon-url-row" class="link-icon-sub-row hidden">
+          <input type="url" id="link-icon-url-input" class="glass-input" placeholder="https://…/icon.png" />
+        </div>
+        <div id="link-icon-local-row" class="link-icon-sub-row hidden">
+          <button class="btn-ghost link-icon-file-btn" id="link-icon-file-btn">Choose image…</button>
+          <span id="link-icon-file-name" class="link-icon-file-name">No file chosen</span>
+          <input type="file" id="link-icon-file" accept="image/*" style="display:none" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost modal-cancel">Cancel</button>
+        <button class="btn-accent" id="link-confirm-btn">Add Link</button>
+      </div>
+    </div>
+
+    <!-- IMPORT MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-import">
+      <div class="modal-header">
+        <h3>Import Bookmarks</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="import-options">
+          <button class="import-opt-btn" id="btn-import-browser">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span>Browser Bookmarks</span>
+            <small>Import from your browser's bookmark tree</small>
+          </button>
+          <button class="import-opt-btn" id="btn-import-json">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2a2 2 0 0 1 0 4H8"/><path d="M14 13h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2"/></svg>
+            <span>ZenR JSON File</span>
+            <small>Restore from a previous ZenR export</small>
+          </button>
+        </div>
+        <input type="file" id="file-json-input" accept=".json" class="hidden">
+      </div>
+    </div>
+
+    <!-- EXPORT MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-export">
+      <div class="modal-header">
+        <h3>Export Bookmarks</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="import-options">
+          <button class="import-opt-btn" id="btn-export-json">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span>Export as JSON</span>
+            <small>Full data with pages &amp; boards — re-importable</small>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WALLPAPER MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-wallpaper" style="max-width:680px">
+      <div class="modal-header">
+        <h3>Background</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="wp-style-tabs">
+          <button class="wp-tab active" data-tab="gradient">Gradients</button>
+          <button class="wp-tab" data-tab="image">Image</button>
+          <button class="wp-tab" data-tab="video">Video</button>
+        </div>
+
+        <!-- Gradients tab -->
+        <div class="wp-panel" id="wp-gradient">
+          <div class="gradient-grid" id="gradient-grid"></div>
+        </div>
+
+        <!-- Image tab -->
+        <div class="wp-panel hidden" id="wp-image">
+          <!-- ── Active source bar ── -->
+          <div class="bg-source-bar" id="bg-source-bar-image">
+            <div class="bg-source-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span id="bg-source-text-image">No background set</span>
+            </div>
+            <div class="bg-source-actions">
+              <button class="bg-clear-btn" id="bg-clear-pxb-img" title="Clear Pixabay images">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                Clear Pixabay
+              </button>
+              <button class="bg-clear-btn" id="bg-clear-local-img" title="Clear local images">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                Clear local files
+              </button>
+              <button class="bg-clear-btn bg-clear-all-btn" id="bg-clear-all-img" title="Clear all &amp; reset to gradient">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+                Reset to gradient
+              </button>
+            </div>
+          </div>
+          <!-- Pixabay Image Search section -->
+          <div class="pxb-section">
+            <div class="pxb-header">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Pixabay Image Search</span>
+            </div>
+            <!-- API Key Gate -->
+            <div class="pxb-key-gate" id="pxb-key-gate-img">
+              <!-- No key: input + save -->
+              <div class="pxb-key-input-row" id="pxb-key-row-img">
+                <div class="pxb-key-entry">
+                  <input type="password" class="pxb-input pxb-key-field" id="pxb-key-input-img" placeholder="Paste your Pixabay API key…" autocomplete="off" spellcheck="false">
+                  <button class="pxb-key-save-btn" id="pxb-key-save-img">Save</button>
+                </div>
+                <a class="pxb-key-link" href="https://pixabay.com/api/docs/" target="_blank">Get your free API key →</a>
+              </div>
+              <!-- Has key: masked + remove -->
+              <div class="pxb-key-saved-row hidden" id="pxb-key-saved-img">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span class="pxb-key-masked" id="pxb-key-masked-img"></span>
+                <button class="pxb-key-remove-btn" id="pxb-key-remove-img">Remove</button>
+              </div>
+            </div>
+            <div class="pxb-search-area pxb-locked" id="pxb-search-area-img">
+              <div class="pxb-search-row">
+                <input type="text" id="pxb-img-query" class="pxb-input" placeholder="anime, nature, city, space…">
+                <button class="pxb-search-btn" id="pxb-img-search-btn">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  Search
+                </button>
+              </div>
+              <div id="pxb-img-status" class="pxb-status hidden"></div>
+              <div id="pxb-img-results" class="pxb-results"></div>
+              <div class="auto-change-row pxb-auto-change-row" id="pxb-auto-change-image-row">
+                <label class="toggle-label">
+                  <input type="checkbox" id="toggle-pxb-auto-change-img">
+                  <span>New wallpaper on every new tab</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="pxb-divider">
+            <span>— or upload your own —</span>
+          </div>
+
+          <div class="upload-zone" id="img-upload-zone">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><polyline points="21 15 16 10 5 21"/></svg>
+            <p>Click to upload images</p>
+            <small>JPG, PNG, WebP, GIF — select multiple</small>
+          </div>
+          <input type="file" id="bg-img-input" class="hidden" accept="image/*" multiple>
+          <div id="media-list-images" class="media-list"></div>
+          <div class="auto-change-row" id="auto-change-image-row">
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-auto-change-img">
+              <span>Auto-change on every new tab</span>
+            </label>
+          </div>
+          <div class="wallpaper-source-row">
+            <span class="wallpaper-source-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Don't have wallpapers?
+            </span>
+            <div class="wallpaper-source-dropdown-wrap">
+              <button class="wallpaper-source-btn" id="img-source-btn">
+                Get it from here
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="wallpaper-source-dropdown hidden" id="img-source-dropdown">
+                <a href="https://4kwallpapers.com/" target="_blank" class="wallpaper-source-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><polyline points="21 15 16 10 5 21"/></svg>
+                  4K Wallpapers
+                </a>
+                <a href="https://www.uhdpaper.com/" target="_blank" class="wallpaper-source-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><polyline points="21 15 16 10 5 21"/></svg>
+                  UHD Paper
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Video tab -->
+        <div class="wp-panel hidden" id="wp-video">
+          <!-- ── Active source bar ── -->
+          <div class="bg-source-bar" id="bg-source-bar-video">
+            <div class="bg-source-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span id="bg-source-text-video">No background set</span>
+            </div>
+            <div class="bg-source-actions">
+              <button class="bg-clear-btn" id="bg-clear-pxb-vid" title="Clear Pixabay videos">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                Clear Pixabay
+              </button>
+              <button class="bg-clear-btn" id="bg-clear-local-vid" title="Clear local videos">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                Clear local files
+              </button>
+              <button class="bg-clear-btn bg-clear-all-btn" id="bg-clear-all-vid" title="Clear all &amp; reset to gradient">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+                Reset to gradient
+              </button>
+            </div>
+          </div>
+          <!-- Pixabay Search section -->
+          <div class="pxb-section">
+            <div class="pxb-header">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Pixabay Video Search</span>
+            </div>
+            <!-- API Key Gate -->
+            <div class="pxb-key-gate" id="pxb-key-gate-vid">
+              <!-- No key: input + save -->
+              <div class="pxb-key-input-row" id="pxb-key-row-vid">
+                <div class="pxb-key-entry">
+                  <input type="password" class="pxb-input pxb-key-field" id="pxb-key-input-vid" placeholder="Paste your Pixabay API key…" autocomplete="off" spellcheck="false">
+                  <button class="pxb-key-save-btn" id="pxb-key-save-vid">Save</button>
+                </div>
+                <a class="pxb-key-link" href="https://pixabay.com/api/docs/" target="_blank">Get your free API key →</a>
+              </div>
+              <!-- Has key: masked + remove -->
+              <div class="pxb-key-saved-row hidden" id="pxb-key-saved-vid">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span class="pxb-key-masked" id="pxb-key-masked-vid"></span>
+                <button class="pxb-key-remove-btn" id="pxb-key-remove-vid">Remove</button>
+              </div>
+            </div>
+            <div class="pxb-search-area pxb-locked" id="pxb-search-area-vid">
+              <div class="pxb-search-row">
+                <input type="text" id="pxb-query" class="pxb-input" placeholder="anime, nature, city, space…">
+                <button class="pxb-search-btn" id="pxb-search-btn">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  Search
+                </button>
+              </div>
+              <div id="pxb-status" class="pxb-status hidden"></div>
+              <div id="pxb-results" class="pxb-results"></div>
+              <div class="auto-change-row pxb-auto-change-row" id="pxb-auto-change-video-row">
+                <label class="toggle-label">
+                  <input type="checkbox" id="toggle-pxb-auto-change-vid">
+                  <span>New wallpaper on every new tab</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="pxb-divider">
+            <span>— or upload your own —</span>
+          </div>
+
+          <div class="upload-zone" id="vid-upload-zone">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            <p>Click to upload videos</p>
+            <small>MP4, WebM, OGV — select multiple</small>
+          </div>
+          <input type="file" id="bg-vid-input" class="hidden" accept="video/*" multiple>
+          <div id="media-list-videos" class="media-list"></div>
+          <div class="auto-change-row" id="auto-change-video-row">
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-auto-change-vid">
+              <span>Auto-change on every new tab</span>
+            </label>
+          </div>
+          <div class="wallpaper-source-row">
+            <span class="wallpaper-source-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Don't have live wallpapers?
+            </span>
+            <div class="wallpaper-source-dropdown-wrap">
+              <button class="wallpaper-source-btn" id="vid-source-btn">
+                Get it from here
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="wallpaper-source-dropdown hidden" id="vid-source-dropdown">
+                <a href="https://motionbgs.com/" target="_blank" class="wallpaper-source-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                  MotionBGS
+                </a>
+                <a href="https://moewalls.com/" target="_blank" class="wallpaper-source-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                  MoeWalls
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="bg-controls">
+          <div class="bg-control-row">
+            <label>Overlay Opacity</label>
+            <input type="range" id="ctrl-overlay" min="0" max="90" step="5" value="50">
+            <span id="ctrl-overlay-val">50%</span>
+          </div>
+          <div class="bg-control-row">
+            <label>Blur</label>
+            <input type="range" id="ctrl-blur" min="0" max="30" step="1" value="0">
+            <span id="ctrl-blur-val">0px</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONFIRM MODAL -->
+    <div class="modal-box glass-card hidden" id="modal-confirm">
+      <div class="modal-header">
+        <h3 id="confirm-title">Confirm</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost modal-cancel">Cancel</button>
+        <button class="btn-danger" id="confirm-action-btn">Delete</button>
+      </div>
+    </div>
+
+  </div><!-- /modal-overlay -->
+
+  <!-- ===== SETTINGS SIDE PANEL ===== -->
+  <div id="modal-settings">
+    <div class="sett-header">
+      <div class="sett-header-left">
+        <!-- ZenR Brand Logo -->
+        <img src="icon.png" width="34" height="34" class="sett-logo" alt="ZenR logo" style="border-radius:9px;object-fit:cover;display:block;">
+        <div>
+          <h3 class="sett-title">ZenR<span class="sett-title-sub">·NewTab</span></h3>
+          <p class="sett-subtitle">Settings</p>
+        </div>
+      </div>
+      <button id="sett-close-btn" class="modal-close" title="Close">&#10005;</button>
+    </div>
+    <div class="sett-body">
+
+      <!-- Quick Actions -->
+      <div class="sett-actions-grid">
+        <button class="sett-action-card" id="btn-import">
+          <div class="sett-action-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+          <span class="sett-action-label">Import</span>
+          <small class="sett-action-sub">Restore bookmarks</small>
+        </button>
+        <button class="sett-action-card" id="btn-export">
+          <div class="sett-action-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <span class="sett-action-label">Export</span>
+          <small class="sett-action-sub">Save as JSON</small>
+        </button>
+        <button class="sett-action-card sett-action-wide" id="btn-wallpaper">
+          <div class="sett-action-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <div>
+            <span class="sett-action-label">Wallpaper</span>
+            <small class="sett-action-sub">Change background</small>
+          </div>
+        </button>
+      </div>
+
+      <!-- Layout Section -->
+      <div class="sett-section">
+        <div class="sett-section-title" style="display:flex;align-items:center;gap:6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Layout
+          <span class="layout-info-tip" tabindex="0" aria-label="Layout sync information" data-tooltip="Quick Links, groups, and widgets will NOT SYNC between these two layouts — choose the layout you prefer. You can use both, but you'll need to manually re-enter links, widgets, etc. in each. Auto-sync is disabled to prevent conflicts.">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </span>
+        </div>
+        <div class="layout-picker-row">
+          <!-- Classic boards option -->
+          <div class="layout-opt active" data-layout="classic">
+            <div class="layout-preview layout-preview-classic">
+              <div class="lp-card"></div>
+              <div class="lp-card"></div>
+              <div class="lp-card"></div>
+              <div class="lp-card"></div>
+            </div>
+            <div class="layout-opt-label">
+              <span class="layout-opt-name">Classic Boards</span>
+              <span class="layout-opt-sub">Draggable glass cards with pages</span>
+            </div>
+          </div>
+          <!-- Minimal groups option -->
+          <div class="layout-opt" data-layout="minimal">
+            <div class="layout-preview layout-preview-minimal">
+              <div class="lp-mg-row">
+                <div class="lp-dot"></div><div class="lp-dot"></div><div class="lp-dot"></div>
+              </div>
+              <div class="lp-mg-row">
+                <div class="lp-dot"></div><div class="lp-dot"></div><div class="lp-dot"></div><div class="lp-dot"></div>
+              </div>
+            </div>
+            <div class="layout-opt-label">
+              <span class="layout-opt-name">Minimal Groups</span>
+              <span class="layout-opt-sub">Icon grid — clean &amp; distraction-free</span>
+            </div>
+          </div>
+        </div>
+        <!-- Minimal Groups sub-settings (links per row + icon style) -->
+        <div class="mg-links-row-setting mg-subsettings-block">
+          <!-- Links per row -->
+          <div class="mg-subsett-row">
+            <div class="mg-subsett-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
+              Links per row
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="mg-links-per-row" min="3" max="16" step="1" style="width:80px;">
+              <span id="mg-links-per-row-val" class="mg-subsett-val"></span>
+            </div>
+          </div>
+          <!-- Icon Style -->
+          <div class="mg-subsett-divider"></div>
+          <div class="mg-subsett-label" style="margin-bottom:10px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M3 12h1M20 12h1M12 3v1M12 20v1"/></svg>
+            Icon Style
+          </div>
+          <div class="mg-icon-style-row">
+            <div class="mg-icon-style-opt active" data-style="default">
+              <div class="mg-style-preview mg-style-preview-default"><div class="msp-bubble"></div></div>
+              <span>Default</span>
+            </div>
+            <div class="mg-icon-style-opt" data-style="glass">
+              <div class="mg-style-preview mg-style-preview-glass"><div class="msp-bubble"></div></div>
+              <span>Glass</span>
+            </div>
+            <div class="mg-icon-style-opt" data-style="minimal">
+              <div class="mg-style-preview mg-style-preview-minimal"><div class="msp-bubble"></div></div>
+              <span>Minimal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Appearance Section -->
+      <div class="sett-section">
+        <div class="sett-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Appearance
+        </div>
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            <span>Accent Color</span>
+          </div>
+          <input type="color" id="accent-color-input" value="#4fffb0" class="sett-color-input">
+        </div>
+        <div class="sett-row" id="card-blur-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            <div>
+              <span>Card Blur</span>
+              <small class="sett-row-sub" id="card-blur-sub">Normal mode only</small>
+            </div>
+          </div>
+          <div class="sett-row-ctrl">
+            <input type="range" id="card-blur-input" min="0" max="40" step="2" value="20">
+            <span id="card-blur-val" class="sett-val-badge">20px</span>
+          </div>
+        </div>
+        <!-- Liquid Glass Toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="9"/><path d="M8 9c1.5-2 6.5-2 8 0"/><path d="M7 13.5c2 3 8 3 10 0"/><circle cx="12" cy="12" r="2.5" fill="currentColor" opacity="0.2"/></svg>
+            <div>
+              <span>Liquid Glass</span>
+              <small class="sett-row-sub">Apple-style refracted glass UI</small>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-liquid-glass">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Liquid Glass sub-settings (visible when toggle is ON) -->
+        <div id="lg-sub-settings">
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+              <span>Glass Blur</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-blur" min="0" max="72" step="2" value="4">
+              <span id="lg-blur-val" class="sett-val-badge">4px</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="M2 12h20M12 2v20"/></svg>
+              <span>Glass Density</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-density" min="0" max="25" step="1" value="6">
+              <span id="lg-density-val" class="sett-val-badge">6%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+              <span>Saturation</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-saturation" min="100" max="350" step="10" value="180">
+              <span id="lg-saturation-val" class="sett-val-badge">180%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 0 0 20V2z"/></svg>
+              <span>Brightness</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-brightness" min="85" max="130" step="1" value="85">
+              <span id="lg-brightness-val" class="sett-val-badge">0.85</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v2H3zM3 10h18M3 17h18"/></svg>
+              <span>Rim Glow</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-rim" min="0" max="100" step="5" value="40">
+              <span id="lg-rim-val" class="sett-val-badge">40%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              <span>Shadow Depth</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-shadow" min="0" max="80" step="5" value="80">
+              <span id="lg-shadow-val" class="sett-val-badge">80%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M12 3l9 9-9 9"/></svg>
+              <div>
+                <span>Glass Tint</span>
+                <small class="sett-row-sub">Colors the card surface</small>
+              </div>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="color" id="lg-tint" value="#ffffff" class="sett-color-input">
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M8 12h8M12 8v8"/></svg>
+              <div>
+                <span>Tint Intensity</span>
+                <small class="sett-row-sub">How strongly the tint color shows</small>
+              </div>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-tint-opacity" min="5" max="50" step="1" value="15">
+              <span id="lg-tint-opacity-val" class="sett-val-badge">8%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/></svg>
+              <span>Corner Boost</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-corner-boost" min="0" max="100" step="5" value="30">
+              <span id="lg-corner-boost-val" class="sett-val-badge">30%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M3 21L21 3"/></svg>
+              <span>Edge Shimmer</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-edge-glow" min="0" max="100" step="5" value="50">
+              <span id="lg-edge-glow-val" class="sett-val-badge">50%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M3 12c0 4.97 4.03 9 9 9s9-4.03 9-9"/></svg>
+              <span>Refraction</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="lg-refraction" min="0" max="100" step="5" value="60">
+              <span id="lg-refraction-val" class="sett-val-badge">60%</span>
+            </div>
+          </div>
+
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+              <span style="font-size:11px">Reset Liquid Glass</span>
+            </div>
+            <button class="btn-accent-sm" id="lg-reset-btn">Reset</button>
+          </div>
+
+        </div><!-- /lg-sub-settings -->
+
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            <span>Font</span>
+          </div>
+          <select id="font-select" class="sett-select sett-font-select">
+            <option value="DM Sans">DM Sans</option>
+            <option value="Inter">Inter</option>
+            <option value="Space Grotesk">Space Grotesk</option>
+            <option value="Outfit">Outfit</option>
+            <option value="Nunito">Nunito</option>
+            <option value="Josefin Sans">Josefin Sans</option>
+            <option value="Rajdhani">Rajdhani</option>
+            <option value="Oxanium">Oxanium</option>
+            <option value="Share Tech Mono">Share Tech Mono</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Widgets Section -->
+      <div class="sett-section">
+        <div class="sett-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Widgets
+        </div>
+
+        <!-- Clock toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>Clock &amp; Date</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-clock">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Clock sub-settings (shown when clock is on) -->
+        <div id="clock-sub-settings" style="display:none" class="widget-sub-panel widget-sub-panel-clock">
+          <div class="sett-row sett-row-indented" id="clock-format-row">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              <span>Time Format</span>
+            </div>
+            <select id="clock-format-select" class="sett-select">
+              <option value="24h">24-hour</option>
+              <option value="12h">12-hour</option>
+            </select>
+          </div>
+          <div class="sett-row sett-row-indented" id="clock-seconds-row">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12"/></svg>
+              <span>Show Seconds</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-seconds">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span>Widget Style</span>
+            </div>
+            <select id="clock-style-select" class="sett-select">
+              <option value="glass">Glass Card</option>
+              <option value="minimal">Minimal</option>
+              <option value="neon">Neon Glow</option>
+              <option value="retro">Retro Digital</option>
+              <option value="bold">Bold Centered</option>
+            </select>
+          </div>
+          <!-- Clock Size -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3M21 3H3M9 3v18M3 9h6M3 15h6"/></svg>
+              <span>Clock Size</span>
+            </div>
+            <div class="sett-row-ctrl">
+              <button class="sett-size-btn" id="clock-size-dec" title="Decrease size">−</button>
+              <span id="clock-size-val" class="sett-val-badge">100%</span>
+              <button class="sett-size-btn" id="clock-size-inc" title="Increase size">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes Widget toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span>Notes</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-notes">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Calculator Widget toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="10" y2="18"/><line x1="14" y1="18" x2="16" y2="18"/></svg>
+            <span>Calculator</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-calculator">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <!-- Calculator sub-settings -->
+        <div id="calc-sub-settings" style="display:none" class="widget-sub-panel widget-sub-panel-calc">
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <div>
+                <span>Save History</span>
+                <small class="sett-row-sub">Store past calculations</small>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-calc-history">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Search Bar Widget toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>Search Bar</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-search">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Search sub-settings -->
+        <div id="search-sub-settings" style="display:none" class="widget-sub-panel widget-sub-panel-search">
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Search Engine</span>
+            </div>
+            <select id="search-engine-select" class="sett-select">
+              <option value="google">Google</option>
+              <option value="bing">Bing</option>
+              <option value="duckduckgo">DuckDuckGo</option>
+              <option value="brave">Brave</option>
+              <option value="ecosia">Ecosia</option>
+              <option value="startpage">Startpage</option>
+            </select>
+          </div>
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <span>Suggestions</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-search-suggestions">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span>Open in new tab</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-search-newtab">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <!-- Placeholder text -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+              <div>
+                <span>Bar Placeholder Text</span>
+                <small class="sett-row-sub">Hint text shown inside the bar</small>
+              </div>
+            </div>
+            <input type="text" id="search-placeholder-input" class="glass-input sett-tab-title-input" placeholder="What's on your mind?" maxlength="60" />
+          </div>
+          <!-- Bar Width -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6l3-3-3-3M3 18l3 3-3 3M21 6l-3-3 3-3M21 18l-3 3 3 3"/></svg>
+              <div>
+                <span>Bar Width</span>
+                <small class="sett-row-sub">Drag to set pixel width</small>
+              </div>
+            </div>
+            <div class="sett-row-ctrl">
+              <input type="range" id="search-bar-width-input" min="240" max="680" step="10" value="480">
+              <span id="search-bar-width-val" class="sett-val-badge">Auto</span>
+            </div>
+          </div>
+          <!-- Compact Mode -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="8" rx="2"/><path d="M8 8V6M16 8V6M8 16v2M16 16v2"/></svg>
+              <div>
+                <span>Compact Mode</span>
+                <small class="sett-row-sub">Smaller padding &amp; font</small>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-search-compact">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="sett-section">
+        <div class="sett-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+          Bookmarks Sync
+        </div>
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+            <div>
+              <span>Auto-sync on new tab</span>
+              <small class="sett-row-sub">Re-imports browser bookmarks each time</small>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-auto-sync">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Danger Section -->
+      <div class="sett-section sett-section-last">
+        <button class="sett-reset-btn" id="btn-reset-all">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+          Reset All Data
+        </button>
+      </div>
+
+      <!-- Tab Title Section -->
+      <div class="sett-section">
+        <div class="sett-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          Browser Tab
+        </div>
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+            <div>
+              <span>Tab Name</span>
+              <small class="sett-row-sub">Text shown in URL bar &amp; tab</small>
+            </div>
+          </div>
+          <div class="sett-row-ctrl">
+            <input type="text" id="tab-title-input" class="glass-input sett-tab-title-input" placeholder="ZenR-NewTab" maxlength="60" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer / About Section -->
+      <div class="sett-section sett-footer-section">
+        <button id="open-report-panel" class="sett-report-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Report an Issue
+        </button>
+        <p class="sett-made-with">Made with <span class="sett-heart">&#10084;</span> by Archimetrix</p>
+        <div class="sett-footer-btns">
+          <a href="https://github.com/Archimetrix/ZenR-NewTab" target="_blank" class="sett-gh-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+            Star on GitHub
+          </a>
+          <a href="https://buymeacoffee.com/archimetrix" target="_blank" class="sett-bmc-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+            Buy Me a Coffee
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /settings-panel -->
+
+  <!-- ── REPORT PANEL ─────────────────────────────────────────────── -->
+  <div id="report-panel" aria-hidden="true">
+    <div class="rp-inner glass-card">
+      <div class="rp-header">
+        <div class="rp-header-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Report an Issue
+        </div>
+        <button class="rp-close-btn" id="report-close-btn" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="rp-desc">Found a bug or something off? Describe it below — your report goes straight to our inbox. 🙏</p>
+      <div class="rp-field">
+        <label class="rp-label">Your name <span class="rp-optional">(optional)</span></label>
+        <input type="text" id="report-name" class="glass-input" placeholder="Anonymous" maxlength="80" />
+      </div>
+      <div class="rp-field">
+        <label class="rp-label">Describe the issue <span class="rp-required">*</span></label>
+        <textarea id="report-message" class="glass-input rp-textarea" placeholder="What went wrong? What were you doing when it happened? Any details help a lot…" maxlength="4000"></textarea>
+      </div>
+      <div class="rp-field">
+        <label class="rp-label">Screenshots <span class="rp-optional">(optional, up to 3)</span></label>
+        <div class="rp-upload-area" id="report-upload-area">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M3 15 L8 10 L12 14 L16 10 L21 15"/></svg>
+          <span>Click to attach images</span>
+          <input type="file" id="report-file-input" accept="image/*" multiple style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;" />
+        </div>
+        <div class="rp-preview-grid" id="report-preview-grid"></div>
+      </div>
+      <button id="report-submit-btn" class="rp-submit-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><path d="M22 2 L15 22 L11 13 L2 9 Z"/></svg>
+        Send Report
+      </button>
+      <div id="report-status"></div>
+    </div>
+  </div>
+
+  <!-- Notes widgets are created dynamically by JS -->
+  <input type="file" id="notes-img-input" accept="image/*" style="display:none">
+
+  <!-- Clock Widget -->
+  <div id="clock-widget" class="hidden clock-style-glass">
+    <div class="clock-inner">
+      <span id="clock-time">00:00</span>
+      <div id="clock-date"></div>
+    </div>
+  </div>
+
+  <!-- Calculator Widget -->
+  <div id="calc-widget" class="calc-widget hidden">
+    <div class="calc-header">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+      <span class="calc-title">Calculator</span>
+      <div class="calc-header-actions">
+        <button class="calc-hdr-btn calc-history-toggle-btn hidden" id="calc-history-btn" title="History">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1 0 5.64 5.64L1 10"/></svg>
+        </button>
+        <button class="calc-hdr-btn calc-hdr-close" id="calc-close-btn" title="Close">&#10005;</button>
+      </div>
+    </div>
+    <div class="calc-body">
+      <!-- History panel (hidden by default) -->
+      <div class="calc-history-panel hidden" id="calc-history-panel">
+        <div class="calc-history-header">
+          <span>History</span>
+          <button class="calc-clear-hist-btn" id="calc-clear-hist">Clear</button>
+        </div>
+        <div class="calc-history-list" id="calc-history-list"></div>
+      </div>
+      <!-- Display -->
+      <div class="calc-display">
+        <div class="calc-expr" id="calc-expr"></div>
+        <div class="calc-result" id="calc-result">0</div>
+      </div>
+      <!-- Basic buttons -->
+      <div class="calc-grid">
+        <button class="calc-btn calc-clear" data-action="clear">AC</button>
+        <button class="calc-btn calc-op" data-action="sign">+/−</button>
+        <button class="calc-btn calc-op" data-action="pct">%</button>
+        <button class="calc-btn calc-op calc-op-primary" data-action="op" data-val="÷">÷</button>
+
+        <button class="calc-btn" data-action="num" data-val="7">7</button>
+        <button class="calc-btn" data-action="num" data-val="8">8</button>
+        <button class="calc-btn" data-action="num" data-val="9">9</button>
+        <button class="calc-btn calc-op calc-op-primary" data-action="op" data-val="×">×</button>
+
+        <button class="calc-btn" data-action="num" data-val="4">4</button>
+        <button class="calc-btn" data-action="num" data-val="5">5</button>
+        <button class="calc-btn" data-action="num" data-val="6">6</button>
+        <button class="calc-btn calc-op calc-op-primary" data-action="op" data-val="−">−</button>
+
+        <button class="calc-btn" data-action="num" data-val="1">1</button>
+        <button class="calc-btn" data-action="num" data-val="2">2</button>
+        <button class="calc-btn" data-action="num" data-val="3">3</button>
+        <button class="calc-btn calc-op calc-op-primary" data-action="op" data-val="+">+</button>
+
+        <button class="calc-btn calc-zero" data-action="num" data-val="0">0</button>
+        <button class="calc-btn" data-action="dot">.</button>
+        <button class="calc-btn calc-op calc-op-primary calc-eq" data-action="equals">=</button>
+      </div>
+    </div>
+    <div class="calc-resize-handle" id="calc-resize-handle"></div>
+  </div>
+
+  <!-- Search Bar Widget -->
+  <div id="search-widget">
+    <div class="sw-bar">
+      <!-- Engine logo pill -->
+      <button id="sw-engine-pill" class="sw-engine-pill" title="Click to cycle engines"></button>
+      <!-- Input -->
+      <input id="sw-input" class="sw-input" type="text" placeholder="What's on your mind?" autocomplete="off" spellcheck="false">
+      <!-- Submit — liquid glass bubble -->
+      <button id="sw-submit" class="sw-submit" title="Search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+    </div>
+    <!-- Suggestions dropdown -->
+    <ul id="sw-suggestions" class="sw-suggestions"></ul>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <!-- INTRO VIDEO OVERLAY -->
+  <div id="intro-overlay">
+    <video id="intro-video" src="intro.mp4" playsinline></video>
+  </div>
+
+
+  <script src="newtab.js"></script>
+</body>
+</html>

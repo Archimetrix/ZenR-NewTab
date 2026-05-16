@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "ZenR-NewTab",
+  "version": "1.0.0",
+  "description": "A liquid-glass new tab bookmark manager with pages, boards, drag & drop, and custom wallpapers.",
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "permissions": [
+    "bookmarks",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://pixabay.com/*",
+    "https://suggestqueries.google.com/*",
+    "https://api.bing.com/*",
+    "https://duckduckgo.com/*",
+    "https://api.qwant.com/*",
+    "https://search.brave.com/*",
+    "https://www.startpage.com/*",
+    "https://catbox.moe/*",
+    "https://formbold.com/*"
+  ],
+  "action": {
+    "default_title": "ZenR Bookmarks",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "default-bg.jpg",
+        "intro.mp4"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
