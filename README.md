@@ -4,9 +4,13 @@
 
 <h1>ZenR · NewTab</h1>
 
-<p><strong>A liquid-glass new tab experience for Firefox</strong></p>
+<p><strong>A liquid-glass new tab experience for Firefox & Chromium browsers</strong></p>
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
 [![Firefox Add-on](https://img.shields.io/badge/Firefox-Add--on-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white)](#)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)](#)
+[![Edge Add-on](https://img.shields.io/badge/Edge-Add--on-0078D7?style=for-the-badge&logo=microsoft-edge&logoColor=white)](#)
+[![Opera Add-on](https://img.shields.io/badge/Opera-Add--on-FF1B2D?style=for-the-badge&logo=opera&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red?style=for-the-badge)](#)
 [![Buy Me a Coffee](https://img.shields.io/badge/Support-Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/archimetrix)
 
@@ -18,9 +22,17 @@
 
 <br/>
 
-> ZenR replaces Firefox's default new tab with a beautiful, glass-morphic bookmark manager. Organize your links across pages and boards, personalize every visual detail, and set live video or image wallpapers — all without leaving the tab.
+> ZenR replaces your browser's default new tab with a beautiful, glass-morphic bookmark manager. Organize your links across pages and boards, personalize every visual detail, and set live video or image wallpapers — all without leaving the tab. Works on Firefox, Chrome, Edge, Opera, Brave, Vivaldi, and all Chromium-based browsers.
 
 <br/>
+
+---
+
+## 🎬 See it in Action
+
+<video src="https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/intro.mp4" autoplay muted loop playsinline width="100%"></video>
+
+> *If the video doesn't play above, [click here to watch it](https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/intro.mp4)*
 
 ---
 
@@ -37,6 +49,26 @@
 <img src="https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/Images/zenrscreenshot4.png" width="49%" alt="ZenR Screenshot 4" />
 
 </div>
+
+---
+
+## 📥 Download
+
+<p>
+  <a href="#" target="_blank">
+    <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Add-on for Firefox" height="56">
+  </a>
+  &nbsp;
+  <a href="#" target="_blank">
+    <img src="https://developer.microsoft.com/en-us/store/badges/images/English_get-it-from-MS.png" alt="Get it from Microsoft Edge" height="56">
+  </a>
+  &nbsp;
+  <a href="https://github.com/Archimetrix/ZenR-NewTab/archive/refs/heads/main.zip" target="_blank">
+    <img src="https://img.shields.io/badge/Download_ZIP-101010?style=for-the-badge&logo=github&logoColor=white" alt="Download ZIP" height="56">
+  </a>
+</p>
+
+> **Note:** Currently available officially on the Firefox and Microsoft Edge Add-on stores. For **Chrome, Opera, Brave, Vivaldi** and other Chromium users, use the **Download ZIP** button above and follow the quick **Local Installation** guide below.
 
 ---
 
@@ -179,9 +211,23 @@ Enable *Auto-sync on new tab* to automatically re-import browser bookmarks every
 
 ---
 
+## 🛠️ Local Installation (Chrome, Opera, Brave, Vivaldi, etc.)
+
+For users on Chromium browsers where ZenR is not yet in the store, you can install it locally in Developer Mode in just a few steps:
+
+1. **Download the Extension** — Click the **Download ZIP** button in the Downloads section above and extract the folder to your computer.
+2. **Open Extensions** — In your browser, navigate to `chrome://extensions/` (or `opera://extensions/` / `brave://extensions/` / `vivaldi://extensions/`).
+3. **Enable Developer Mode** — Toggle the **"Developer mode"** switch in the top-right corner of the page.
+4. **Load the Extension** — Click **"Load unpacked"** in the top-left and select the extracted `ZenR-NewTab-main` folder.
+5. **Open a New Tab** — ZenR will now replace your default new tab page. Enjoy!
+
+> **Note:** When loading unpacked, your browser may show a reminder about developer mode extensions on startup — this is normal and safe to dismiss.
+
+---
+
 ## 🔒 Privacy
 
-ZenR collects **zero** data. All bookmarks, settings, and wallpapers are stored locally in your browser using Firefox's standard `storage` API. The only external connections ZenR makes are ones you explicitly trigger:
+ZenR collects **zero** data. All bookmarks, settings, and wallpapers are stored locally in your browser using the standard `storage` API. The only external connections ZenR makes are ones you explicitly trigger:
 
 - 🔍 A Pixabay search using **your own** API key
 - 🌐 A search query submitted through the Search Bar widget
@@ -221,11 +267,11 @@ If ZenR makes your browser feel a little more yours, consider supporting its dev
 
 ---
 
-## 📄 License
+## ⚖️ License & Copyright
 
 **© 2025 Archimetrix. All Rights Reserved.**
 
-This software and its source code are the exclusive property of Archimetrix. No part of this project may be reproduced, distributed, modified, or used in any form without explicit written permission from the author.
+> This repository and its contents are proprietary. You may not copy, reproduce, distribute, publish, display, perform, modify, create derivative works, transmit, or in any way exploit any such content, nor may you distribute any part of this content over any network, sell or offer it for sale, or use such content to construct any kind of database without explicit written permission from the author.
 
 ---
 
