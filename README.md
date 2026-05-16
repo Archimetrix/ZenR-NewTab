@@ -7,10 +7,8 @@
 <p><strong>A liquid-glass new tab experience for Firefox & Chromium browsers</strong></p>
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
-[![Firefox Add-on](https://img.shields.io/badge/Firefox-Add--on-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white)](#)
-[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)](#)
-[![Edge Add-on](https://img.shields.io/badge/Edge-Add--on-0078D7?style=for-the-badge&logo=microsoft-edge&logoColor=white)](#)
-[![Opera Add-on](https://img.shields.io/badge/Opera-Add--on-FF1B2D?style=for-the-badge&logo=opera&logoColor=white)](#)
+[![Firefox](https://img.shields.io/badge/Firefox-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white)](#)
+[![Chromium](https://img.shields.io/badge/Chromium%20Browsers-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red?style=for-the-badge)](#)
 [![Buy Me a Coffee](https://img.shields.io/badge/Support-Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/archimetrix)
 
@@ -28,11 +26,7 @@
 
 ---
 
-## 🎬 See it in Action
-
 <video src="https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/intro.mp4" autoplay muted loop playsinline width="100%"></video>
-
-> *If the video doesn't play above, [click here to watch it](https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/intro.mp4)*
 
 ---
 
