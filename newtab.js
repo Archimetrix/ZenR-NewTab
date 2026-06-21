@@ -86,6 +86,9 @@ const DEFAULT_DATA = {
     bgImageIndex: 0,
     bgImageAutoChange: false,
     pixabayApiKey: '',
+    freesoundApiKey: '',
+    moodyPillEnabled: true,
+    moodyPillPos: null,
     pixabayQuery: '',
     pixabayVideos: [],
     pixabayVideoIndex: 0,
@@ -122,6 +125,7 @@ const DEFAULT_DATA = {
     mgPos: { x: null, y: null },
     mgLinksPerRow: 8,
     mgIconStyle: 'default',   // 'default' | 'glass' | 'minimal'
+
   }
 };
 
@@ -217,20 +221,76 @@ let dragSrcBoard   = null;
 let clockInterval = null;
 // When true, loadBackground() skips auto-advance (user picked a specific item)
 let _pxbManualSelect = false;
+let _manualMediaSelect = false;  // set true when user clicks a local media item to bypass auto-advance
+let _mediaDeleting = false;       // guard against concurrent delete operations
 
 // ─── INDEXEDDB (Background Media) ────────────────────
 const DB_NAME = 'zenr-bg', DB_STORE = 'media', DB_VER = 1;
 // Pixabay API key is user-supplied and stored in state.settings.pixabayApiKey
 let _db = null;
+let _dbOpenPromise = null;
 
-async function getDB() {
-  if (_db) return _db;
+// Opens (or returns the cached) IndexedDB connection.
+// On a freshly-launched browser the storage backend isn't always ready the
+// instant a new-tab page runs indexedDB.open() — this can either hang
+// indefinitely or fire onerror almost immediately. Either way, the very
+// first call after a cold start can fail even though everything is fine a
+// moment later. We retry with backoff and a per-attempt timeout so a single
+// bad attempt right at startup doesn't permanently fall back to the default
+// wallpaper for the rest of the session.
+function _openDBOnce() {
   return new Promise((res, rej) => {
+    let settled = false;
     const req = indexedDB.open(DB_NAME, DB_VER);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      rej(new Error('indexedDB.open timed out'));
+    }, 2500);
     req.onupgradeneeded = e => e.target.result.createObjectStore(DB_STORE);
-    req.onsuccess  = e => { _db = e.target.result; res(_db); };
-    req.onerror    = () => rej(req.error);
+    req.onsuccess = e => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      res(e.target.result);
+    };
+    req.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rej(req.error || new Error('indexedDB.open failed'));
+    };
+    req.onblocked = () => {
+      // Don't reject on blocked — onsuccess/onerror will still fire once unblocked.
+    };
   });
+}
+
+async function getDB(retries = 4) {
+  if (_db) return _db;
+  if (_dbOpenPromise) return _dbOpenPromise;
+  _dbOpenPromise = (async () => {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const db = await _openDBOnce();
+        _db = db;
+        db.onclose = () => { _db = null; };
+        return db;
+      } catch (err) {
+        lastErr = err;
+        // Backoff: 150ms, 300ms, 600ms, 1200ms ... gives the browser's
+        // storage backend time to finish initializing after a cold start.
+        await new Promise(r => setTimeout(r, 150 * Math.pow(2, attempt)));
+      }
+    }
+    throw lastErr;
+  })();
+  try {
+    return await _dbOpenPromise;
+  } finally {
+    _dbOpenPromise = null;
+  }
 }
 async function dbSet(key, val) {
   const db = await getDB();
@@ -297,6 +357,28 @@ async function loadState() {
         }
         // Remove the now-redundant global notesList
         delete state.notesList;
+
+        // Migrate: notesEnabled was previously global (state.settings.notesEnabled).
+        // It is now stored per-page (pg.notesEnabled). On first load after upgrade,
+        // copy the global flag to any page that already has notes so they stay visible.
+        if (state.settings.notesEnabled !== undefined) {
+          state.pages.forEach(pg => {
+            if (pg.notesEnabled === undefined) {
+              // Enable for pages that have notes; disable for empty pages
+              pg.notesEnabled = !!(pg.notesList && pg.notesList.length > 0)
+                ? true
+                : (pg.id === (state.settings.currentPageId || 'page-home') && !!state.settings.notesEnabled);
+            }
+          });
+          delete state.settings.notesEnabled; // remove global flag
+        } else {
+          // Ensure every page has the field initialised
+          state.pages.forEach(pg => {
+            if (pg.notesEnabled === undefined) {
+              pg.notesEnabled = !!(pg.notesList && pg.notesList.length > 0);
+            }
+          });
+        }
 
         // Migrate global search/calc enabled+position → current page's per-page state
         {
@@ -369,6 +451,7 @@ function getMgWidgets() {
       clockEnabled: false,
       clockPosition: { x: 20, y: 80 },
       notesEnabled: false,
+      countdown: { enabled: false, eventName: '', targetDate: '', position: { x: 20, y: 200 }, createdAt: null },
     };
   }
   // Ensure clock keys exist in older saves
@@ -376,6 +459,8 @@ function getMgWidgets() {
   if (!state.settings.mgWidgets.clockPosition) state.settings.mgWidgets.clockPosition = { x: 20, y: 80 };
   // Ensure notesEnabled key exists in older saves
   if (state.settings.mgWidgets.notesEnabled === undefined) state.settings.mgWidgets.notesEnabled = false;
+  // Ensure countdown key exists in older saves
+  if (!state.settings.mgWidgets.countdown) state.settings.mgWidgets.countdown = { enabled: false, eventName: '', targetDate: '', position: { x: 20, y: 200 }, createdAt: null };
   return state.settings.mgWidgets;
 }
 
@@ -392,15 +477,19 @@ function setClockEnabled(val) {
 }
 
 // Return true if notes widget should be visible in the current mode
+// Classic mode: stored per-page on pg.notesEnabled (not global) to prevent
+// deleting all notes on one page from hiding notes on other pages.
 function isNotesEnabled() {
   if ((state.settings.boardsLayout || 'classic') === 'minimal') return !!getMgWidgets().notesEnabled;
-  return !!state.settings.notesEnabled;
+  const pg = currentPage();
+  return pg ? !!pg.notesEnabled : false;
 }
 
-// Set notes enabled for the current mode
-function setNotesEnabled(val) {
-  if ((state.settings.boardsLayout || 'classic') === 'minimal') getMgWidgets().notesEnabled = !!val;
-  else state.settings.notesEnabled = !!val;
+// Set notes enabled for the current mode (classic: stored on the page object)
+function setNotesEnabled(val, pg) {
+  if ((state.settings.boardsLayout || 'classic') === 'minimal') { getMgWidgets().notesEnabled = !!val; return; }
+  const target = pg || currentPage();
+  if (target) target.notesEnabled = !!val;
 }
 
 // Return the clock style for the current mode (minimal vs classic are isolated)
@@ -1721,7 +1810,10 @@ function handleJSONFile(e) {
   const reader = new FileReader();
   reader.onload = ev => {
     try {
-      const imported = JSON.parse(ev.target.result);
+      const raw = JSON.parse(ev.target.result);
+      // Support new bundled format (_zenr:2) and legacy plain-state format
+      const imported = (raw._zenr === 2) ? raw.state : raw;
+      // Note: gistConfig (token) is intentionally never restored from backup files.
       if (!imported.pages || !Array.isArray(imported.pages)) {
         toast('Invalid ZenR JSON file', 'error'); return;
       }
@@ -1779,6 +1871,11 @@ function handleJSONFile(e) {
       state.settings.currentPageId = (importedPgExists ? importedPgId : null) || state.pages[0]?.id || state.settings.currentPageId;
       saveState(); render();
       updateNotesWidget();
+      // Refresh Moody Effects UI with restored state
+      moodyStop();
+      moody.cache = {};
+      if (typeof moodyRefreshGate === 'function') moodyRefreshGate();
+      if (typeof moodyPillSync    === 'function') moodyPillSync();
       toast(`Restored ${state.pages.length} page(s) from JSON ✦`, 'success');
     } catch { toast('Failed to parse JSON file', 'error'); }
     closeModal();
@@ -1789,7 +1886,8 @@ function handleJSONFile(e) {
 
 // ─── EXPORT ──────────────────────────────────────────
 function exportJSON() {
-  const data = JSON.stringify(state, null, 2);
+  const bundle = { _zenr: 2, state: state };
+  const data   = JSON.stringify(bundle, null, 2);
   downloadFile('zenr-newtab.json', data, 'application/json');
   toast('Exported JSON ✦', 'success'); closeModal();
 }
@@ -1820,16 +1918,468 @@ function downloadFile(name, content, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+
+// ─── GITHUB GIST BACKUP ──────────────────────────────
+
+const GIST_FILENAME = 'zenr-newtab-backup.json';
+
+const GIST_INTERVALS = {
+  'off': 0,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d' :  7 * 24 * 60 * 60 * 1000,
+  '1m' : 30 * 24 * 60 * 60 * 1000,
+};
+
+let gistConfig = {
+  enabled: false,
+  token: '',
+  gistId: '',
+  interval: 'off',
+  lastBackupTime: 0,
+};
+
+async function loadGistConfig() {
+  return new Promise(res => {
+    chrome.storage.local.get(['zenrGistConfig'], result => {
+      if (result.zenrGistConfig) {
+        gistConfig = Object.assign({}, gistConfig, result.zenrGistConfig);
+      }
+      res();
+    });
+  });
+}
+
+function saveGistConfig() {
+  chrome.storage.local.set({ zenrGistConfig: gistConfig });
+}
+
+function gistFormatDate(ts) {
+  if (!ts) return 'Never backed up to Gist';
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, '0');
+  return `Last backup: ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function gistSetStatus(msg, type /* 'success'|'error'|'loading'|'' */) {
+  const badge = document.getElementById('gist-status-badge');
+  if (!badge) return;
+  if (!msg) { badge.classList.add('hidden'); return; }
+  badge.className = 'gist-status-badge ' + type;
+  badge.textContent = msg;
+}
+
+function gistUpdateLastBackupUI() {
+  const el = document.getElementById('gist-last-backup-time');
+  if (el) el.textContent = gistFormatDate(gistConfig.lastBackupTime);
+  const link = document.getElementById('gist-open-link');
+  if (link) {
+    if (gistConfig.gistId) {
+      link.href = `https://gist.github.com/${gistConfig.gistId}`;
+      link.classList.remove('hidden');
+    } else {
+      link.classList.add('hidden');
+    }
+  }
+}
+
+function gistReadFields() {
+  const tok = (document.getElementById('gist-token-input')?.value || '').trim();
+  if (tok) gistConfig.token = tok;
+  // Sync token input back if empty
+  const tokEl = document.getElementById('gist-token-input');
+  if (tokEl && !tokEl.value && gistConfig.token) tokEl.value = gistConfig.token;
+}
+
+// ─── GIST BACKUP PAYLOAD ─────────────────────────────────────────────────────
+// Backup is now plain JSON — no compression step during backup at all.
+// Images are compressed at insert time: note images ≤100 KB, quick-link icons
+// ≤10 KB.  With those limits a full backup is well under GitHub's 10 MB cap.
+//
+// GIST_COMPRESS_PREFIX + gistDecompress are kept so old ZENR_GZ: backups
+// can still be restored transparently.
+
+const GIST_COMPRESS_PREFIX = 'ZENR_GZ:';
+
+async function gistDecompress(raw) {
+  // No sentinel → old uncompressed backup, return as-is
+  if (!raw.startsWith(GIST_COMPRESS_PREFIX)) return raw;
+  const b64 = raw.slice(GIST_COMPRESS_PREFIX.length);
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const inputStream = new ReadableStream({
+    start(controller) { controller.enqueue(bytes); controller.close(); }
+  });
+  const decompressedStream = inputStream.pipeThrough(new DecompressionStream('deflate-raw'));
+  const chunks = [];
+  const reader = decompressedStream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+  return new TextDecoder().decode(merged);
+}
+
+
+// ── No backup-time image processing needed ───────────────────────────────────
+// Images are compressed at insert time (note images ≤100 KB, quick-link icons
+// ≤10 KB), so the stored state is already small.  Backup just serialises it.
+
+async function gistSendBackup(silent = false) {
+  gistReadFields();
+  if (!gistConfig.token) {
+    if (!silent) { gistSetStatus('Token required', 'error'); setTimeout(() => gistSetStatus('',''), 3000); }
+    return false;
+  }
+
+  if (!silent) gistSetStatus('Preparing backup…', 'loading');
+
+  // Bundle state only — gistConfig (token) is intentionally excluded for security.
+  const bundle  = { _zenr: 2, state: state };
+  const payload = JSON.stringify(bundle, null, 2);
+
+  const body = {
+    description: 'ZenR NewTab Backup',
+    public: false,
+    files: { [GIST_FILENAME]: { content: payload } },
+  };
+
+  try {
+    let url, method;
+    if (gistConfig.gistId) {
+      url    = `https://api.github.com/gists/${gistConfig.gistId}`;
+      method = 'PATCH';
+    } else {
+      url    = 'https://api.github.com/gists';
+      method = 'POST';
+    }
+
+    if (!silent) gistSetStatus('Uploading…', 'loading');
+
+    let resp = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `token ${gistConfig.token}`,
+        'Content-Type' : 'application/json',
+        'Accept'       : 'application/vnd.github+json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    // If the stored gistId no longer exists (deleted on GitHub), clear it and
+    // create a fresh gist automatically instead of showing an error.
+    if (resp.status === 404 && gistConfig.gistId) {
+      gistConfig.gistId = '';
+      saveGistConfig();
+      if (!silent) gistSetStatus('Old gist not found — creating new one…', 'loading');
+      resp = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${gistConfig.token}`,
+          'Content-Type' : 'application/json',
+          'Accept'       : 'application/vnd.github+json',
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      let msg = err.message || `HTTP ${resp.status}`;
+      if (resp.status === 502 || resp.status === 504) {
+        msg = `GitHub timed out (${resp.status}) — please try again.`;
+      }
+      if (!silent) { gistSetStatus(`Error: ${msg}`, 'error'); setTimeout(() => gistSetStatus('',''), 6000); }
+      return false;
+    }
+
+    const data = await resp.json();
+    if (data.id) {
+      gistConfig.gistId = data.id;
+      const idEl = document.getElementById('gist-id-input');
+      if (idEl) idEl.value = data.id;
+    }
+
+    gistConfig.lastBackupTime = Date.now();
+    saveGistConfig();
+    gistUpdateLastBackupUI();
+
+    if (!silent) {
+      const kb = (payload.length / 1024).toFixed(0);
+      gistSetStatus(`Backup saved ✓  (${kb} KB)`, 'success');
+      setTimeout(() => gistSetStatus('',''), 3000);
+      toast('Backed up to GitHub Gist ✦', 'success');
+    }
+    return true;
+  } catch (e) {
+    if (!silent) { gistSetStatus('Network error — check your connection and try again.', 'error'); setTimeout(() => gistSetStatus('',''), 5000); }
+    return false;
+  }
+}
+
+async function gistFindByToken(token) {
+  // Scan the user's gists (up to 3 pages of 100) for the ZenR backup file
+  for (let page = 1; page <= 3; page++) {
+    const resp = await fetch(`https://api.github.com/gists?per_page=100&page=${page}`, {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept'       : 'application/vnd.github+json',
+      },
+    });
+    if (!resp.ok) return null;
+    const list = await resp.json();
+    if (!list.length) break;
+    const found = list.find(g => g.files && g.files[GIST_FILENAME]);
+    if (found) return found.id;
+  }
+  return null;
+}
+
+async function gistGetRestore() {
+  gistReadFields();
+  if (!gistConfig.token) { gistSetStatus('Token required', 'error'); setTimeout(() => gistSetStatus('',''), 3000); return; }
+
+  gistSetStatus('Looking for your backup…', 'loading');
+
+  try {
+    // Auto-discover gist ID if not cached
+    if (!gistConfig.gistId) {
+      const found = await gistFindByToken(gistConfig.token);
+      if (!found) {
+        gistSetStatus('No ZenR backup found in your Gists', 'error');
+        setTimeout(() => gistSetStatus('',''), 5000);
+        return;
+      }
+      gistConfig.gistId = found;
+      saveGistConfig();
+      gistUpdateLastBackupUI();
+    }
+
+    gistSetStatus('Fetching backup…', 'loading');
+
+    const resp = await fetch(`https://api.github.com/gists/${gistConfig.gistId}`, {
+      headers: {
+        'Authorization': `token ${gistConfig.token}`,
+        'Accept'       : 'application/vnd.github+json',
+      },
+    });
+
+    if (!resp.ok) {
+      // Cached ID may be stale — try rediscovering
+      if (resp.status === 404) {
+        gistConfig.gistId = '';
+        saveGistConfig();
+        gistSetStatus('Backup not found — retrying discovery…', 'loading');
+        const found = await gistFindByToken(gistConfig.token);
+        if (!found) { gistSetStatus('No ZenR backup found in your Gists', 'error'); setTimeout(() => gistSetStatus('',''), 5000); return; }
+        gistConfig.gistId = found;
+        saveGistConfig();
+        // Retry fetch with newly found ID
+        return gistGetRestore();
+      }
+      const err = await resp.json().catch(() => ({}));
+      gistSetStatus(`Error: ${err.message || resp.status}`, 'error');
+      setTimeout(() => gistSetStatus('',''), 4000);
+      return;
+    }
+
+    const data = await resp.json();
+    const file = data.files?.[GIST_FILENAME];
+    if (!file) { gistSetStatus('No ZenR data found in Gist', 'error'); setTimeout(() => gistSetStatus('',''), 4000); return; }
+
+    // GitHub only inlines file content up to ~1 MB.
+    // Larger files (e.g. notes with base64 images) come back with
+    // file.truncated = true and the full content at file.raw_url.
+    let rawContent;
+    if (file.truncated) {
+      gistSetStatus('Fetching full backup (large file)…', 'loading');
+      if (!file.raw_url) {
+        gistSetStatus('Backup too large to fetch (no raw URL)', 'error');
+        setTimeout(() => gistSetStatus('',''), 5000);
+        return;
+      }
+      const rawResp = await fetch(file.raw_url, {
+        headers: { 'Authorization': `token ${gistConfig.token}` },
+      });
+      if (!rawResp.ok) {
+        gistSetStatus(`Failed to fetch full backup: ${rawResp.status}`, 'error');
+        setTimeout(() => gistSetStatus('',''), 5000);
+        return;
+      }
+      rawContent = await rawResp.text();
+    } else {
+      rawContent = file.content || '';
+    }
+
+    // Decompress if the payload was compressed on save (ZENR_GZ: prefix).
+    // Old uncompressed backups pass through unchanged — fully backward-compatible.
+    let jsonStr;
+    try {
+      gistSetStatus('Decompressing backup…', 'loading');
+      jsonStr = await gistDecompress(rawContent);
+    } catch (e) {
+      gistSetStatus('Failed to decompress backup', 'error');
+      setTimeout(() => gistSetStatus('',''), 4000);
+      return;
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(jsonStr); }
+    catch { gistSetStatus('Invalid JSON in Gist', 'error'); setTimeout(() => gistSetStatus('',''), 4000); return; }
+
+    // Support new bundled format (_zenr:2) and legacy plain-state format
+    // Note: gistConfig (token) is intentionally never restored from backup.
+    const restoredState = (parsed._zenr === 2) ? parsed.state : parsed;
+
+    state = restoredState;
+    state.settings = Object.assign({}, DEFAULT_DATA.settings, state.settings);
+    if (!state.minimalGroups) state.minimalGroups = [];
+    if (!state.pages?.length) state.pages = JSON.parse(JSON.stringify(DEFAULT_DATA.pages));
+    saveState();
+    render();
+    updateNotesWidget?.();
+    // Refresh Moody Effects UI with restored state
+    moodyStop();
+    moody.cache = {};
+    if (typeof moodyRefreshGate === 'function') moodyRefreshGate();
+    if (typeof moodyPillSync    === 'function') moodyPillSync();
+
+    // gistConfig (token/gistId) is kept as-is — never overwritten from backup content.
+    saveGistConfig();
+    gistUpdateLastBackupUI();
+
+    gistSetStatus('Restored ✓', 'success');
+    setTimeout(() => gistSetStatus('',''), 3000);
+    toast('Restored from GitHub Gist ✦', 'success');
+    closeModal?.();
+  } catch (e) {
+    gistSetStatus('Network error', 'error');
+    setTimeout(() => gistSetStatus('',''), 4000);
+  }
+}
+
+async function gistCheckAutoBackup() {
+  if (!gistConfig.enabled) return;
+  if (!gistConfig.token)   return;
+  if (gistConfig.interval === 'off') return;
+  const intervalMs = GIST_INTERVALS[gistConfig.interval] || 0;
+  if (!intervalMs) return;
+  const elapsed = Date.now() - (gistConfig.lastBackupTime || 0);
+  if (elapsed >= intervalMs) {
+    await gistSendBackup(true /* silent */);
+  }
+}
+
+function _showGistSetupModal(toggleEl, subSettEl) {
+  // Wire up OK / Cancel buttons once then show
+  const okBtn     = document.getElementById('gist-setup-ok-btn');
+  const cancelBtn = document.getElementById('gist-setup-cancel-btn');
+
+  // Clone to remove any previous listeners
+  const okNew     = okBtn.cloneNode(true);
+  const cancelNew = cancelBtn.cloneNode(true);
+  okBtn.replaceWith(okNew);
+  cancelBtn.replaceWith(cancelNew);
+
+  document.getElementById('gist-setup-ok-btn').addEventListener('click', () => {
+    closeModal();
+    gistConfig.enabled = true;
+    toggleEl.checked   = true;
+    saveGistConfig();
+    subSettEl.classList.remove('hidden');
+  });
+
+  document.getElementById('gist-setup-cancel-btn').addEventListener('click', () => {
+    closeModal();
+    // toggle stays unchecked, gistConfig.enabled stays false
+  });
+
+  showModal('modal-gist-setup');
+}
+
+function gistInitUI() {
+  const toggle  = document.getElementById('toggle-gist-enabled');
+  const subSett = document.getElementById('gist-sub-settings');
+  const sendBtn = document.getElementById('gist-send-btn');
+  const getBtn  = document.getElementById('gist-get-btn');
+  const tokEl   = document.getElementById('gist-token-input');
+  const eyeBtn  = document.getElementById('gist-token-eye');
+  const eyeIcon = document.getElementById('gist-eye-icon');
+
+  if (!toggle) return;
+
+  // Populate token from stored config
+  toggle.checked = !!gistConfig.enabled;
+  if (gistConfig.token) tokEl.value = gistConfig.token;
+  if (gistConfig.enabled) subSett.classList.remove('hidden');
+
+  // Interval chips
+  document.querySelectorAll('.gist-chip').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.interval === (gistConfig.interval || 'off'));
+    chip.addEventListener('click', () => {
+      gistConfig.interval = chip.dataset.interval;
+      saveGistConfig();
+      document.querySelectorAll('.gist-chip').forEach(c => c.classList.toggle('active', c === chip));
+    });
+  });
+
+  gistUpdateLastBackupUI();
+
+  toggle.addEventListener('change', () => {
+    if (toggle.checked) {
+      // Don't enable yet — show setup guide modal first
+      toggle.checked = false; // uncheck visually until user confirms
+      _showGistSetupModal(toggle, subSett);
+    } else {
+      gistConfig.enabled = false;
+      saveGistConfig();
+      subSett.classList.add('hidden');
+    }
+  });
+
+  eyeBtn.addEventListener('click', () => {
+    const isPass = tokEl.type === 'password';
+    tokEl.type = isPass ? 'text' : 'password';
+    eyeIcon.innerHTML = isPass
+      ? '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>'
+      : '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  });
+
+  sendBtn.addEventListener('click', async () => {
+    if (tokEl.value.trim()) gistConfig.token = tokEl.value.trim();
+    saveGistConfig();
+    sendBtn.disabled = true;
+    await gistSendBackup(false);
+    sendBtn.disabled = false;
+  });
+
+  getBtn.addEventListener('click', async () => {
+    if (tokEl.value.trim()) gistConfig.token = tokEl.value.trim();
+    saveGistConfig();
+    getBtn.disabled = true;
+    await gistGetRestore();
+    getBtn.disabled = false;
+  });
+
+  // Save token on blur
+  tokEl.addEventListener('blur', () => { if (tokEl.value.trim()) { gistConfig.token = tokEl.value.trim(); saveGistConfig(); } });
+}
+
 // ─── BACKGROUND SYSTEM ───────────────────────────────
 const GRADIENTS = {
   'default':  { label: 'Tron · Default', css: 'linear-gradient(135deg,#080c14 0%,#0d1220 50%,#060a10 100%)' },
-  'midnight': { label: 'Midnight', css: 'linear-gradient(135deg,#0f0c29,#302b63,#1a1a2e)' },
-  'aurora':   { label: 'Aurora',   css: 'linear-gradient(135deg,#011318 0%,#0a2a1a 40%,#071a10 100%)' },
-  'ember':    { label: 'Ember',    css: 'linear-gradient(135deg,#1a0808,#2d1205,#3d1500)' },
-  'ocean':    { label: 'Ocean',    css: 'linear-gradient(135deg,#050d1a 0%,#0a1a30 60%,#020810 100%)' },
-  'graphite': { label: 'Graphite', css: 'linear-gradient(135deg,#141414,#1e1e1e,#0f0f0f)' },
-  'rose':     { label: 'Rose',     css: 'linear-gradient(135deg,#1a0a10,#2d0f1a,#1a0a10)' },
-  'jade':     { label: 'Jade',     css: 'linear-gradient(135deg,#020d0a,#061a12,#020d0a)' },
+  'midnight': { label: 'Midnight', css: 'linear-gradient(135deg,#1a1060 0%,#3d2b8a 50%,#1e1440 100%)' },
+  'aurora':   { label: 'Aurora',   css: 'linear-gradient(135deg,#022a1e 0%,#0d5c38 40%,#103325 100%)' },
+  'ember':    { label: 'Ember',    css: 'linear-gradient(135deg,#3a0d0d 0%,#6b2005 50%,#8a2a00 100%)' },
+  'ocean':    { label: 'Ocean',    css: 'linear-gradient(135deg,#071a38 0%,#103060 60%,#050f20 100%)' },
+  'graphite': { label: 'Graphite', css: 'linear-gradient(135deg,#1a1a1a 0%,#2d2d2d 50%,#141414 100%)' },
+  'rose':     { label: 'Rose',     css: 'linear-gradient(135deg,#38101e 0%,#5c1a30 50%,#38101e 100%)' },
+  'jade':     { label: 'Jade',     css: 'linear-gradient(135deg,#051a12 0%,#0d3a22 50%,#051a12 100%)' },
 };
 
 function buildGradientGrid() {
@@ -1872,8 +2422,10 @@ function setGradientBg(key) {
     layer.style.backgroundSize     = 'cover';
     layer.style.backgroundPosition = 'center';
   } else {
-    layer.style.background      = GRADIENTS[key].css;
-    layer.style.backgroundImage = '';
+    layer.style.backgroundImage    = GRADIENTS[key].css;
+    layer.style.backgroundSize     = 'cover';
+    layer.style.backgroundPosition = 'center';
+    layer.style.backgroundColor    = '';
   }
   document.getElementById('bg-video').style.display = 'none';
   saveState();
@@ -1906,11 +2458,39 @@ async function handleBgImage(e) {
 
 async function handleBgVideo(e) {
   const files = Array.from(e.target.files); if (!files.length) return;
+
+  // ── Loading UI ──────────────────────────────────────
+  const loadingEl  = document.getElementById('vid-upload-loading');
+  const countEl    = document.getElementById('vid-loading-count');
+  const barEl      = document.getElementById('vid-loading-bar');
+  const filenameEl = document.getElementById('vid-loading-filename');
+  const zoneEl     = document.getElementById('vid-upload-zone');
+
+  function showLoading() {
+    if (loadingEl) loadingEl.classList.add('active');
+    if (zoneEl)    zoneEl.style.display = 'none';
+  }
+  function updateLoading(done, total, filename) {
+    if (countEl)    countEl.textContent    = `${done} / ${total}`;
+    if (barEl)      barEl.style.width      = `${Math.round((done / total) * 100)}%`;
+    if (filenameEl) filenameEl.textContent = filename || '';
+  }
+  function hideLoading() {
+    if (loadingEl) loadingEl.classList.remove('active');
+  }
+
+  showLoading();
+  updateLoading(0, files.length, files[0]?.name || '');
+
   await clearAllImages(true);
   const base = state.settings.bgVideoCount || 0;
   for (let i = 0; i < files.length; i++) {
+    updateLoading(i + 1, files.length, files[i].name);
     await dbSet('bg-video-' + (base + i), files[i]);
   }
+
+  hideLoading();
+
   state.settings.bgVideoCount = base + files.length;
   state.settings.bgType = 'video';
   // Auto-enable auto-change when total > 1
@@ -2091,19 +2671,30 @@ function updateBgSourceBar() {
   if (allVidBtn)   allVidBtn.disabled    = (!hasPxbVid && !hasLocalVid);
 }
 
-async function removeMediaItem(type, index) {
+async function removeMediaItem(type, index, itemEl) {
+  if (_mediaDeleting) return;
+  _mediaDeleting = true;
+
   const countKey = type === 'image' ? 'bgImageCount' : 'bgVideoCount';
   const idxKey   = type === 'image' ? 'bgImageIndex' : 'bgVideoIndex';
   const prefix   = type === 'image' ? 'bg-image-' : 'bg-video-';
   const total    = state.settings[countKey] || 0;
 
-  // Shift remaining items down
-  await dbDel(prefix + index);
-  for (let i = index + 1; i < total; i++) {
-    const f = await dbGet(prefix + i);
-    if (f) await dbSet(prefix + (i - 1), f);
-    await dbDel(prefix + i);
-  }
+  // Optimistic UI: instantly mark item as deleting so user sees immediate feedback
+  if (itemEl) itemEl.classList.add('deleting');
+
+  // Phase 1: read all items that need to shift down — in parallel
+  const shiftCount = total - index - 1;
+  const shiftedFiles = shiftCount > 0
+    ? await Promise.all(Array.from({ length: shiftCount }, (_, k) => dbGet(prefix + (index + 1 + k))))
+    : [];
+
+  // Phase 2: delete target + write shifted items + delete vacated last slot — in parallel
+  const ops = [dbDel(prefix + index)];
+  shiftedFiles.forEach((f, k) => { if (f) ops.push(dbSet(prefix + (index + k), f)); });
+  if (shiftCount > 0) ops.push(dbDel(prefix + (total - 1)));
+  await Promise.all(ops);
+
   state.settings[countKey] = Math.max(0, total - 1);
   if (state.settings[idxKey] >= state.settings[countKey]) {
     state.settings[idxKey] = Math.max(0, state.settings[countKey] - 1);
@@ -2112,6 +2703,7 @@ async function removeMediaItem(type, index) {
   saveState();
   await loadBackground();
   await renderMediaList(type);
+  _mediaDeleting = false;
 }
 
 async function renderMediaList(type) {
@@ -2127,13 +2719,69 @@ async function renderMediaList(type) {
     try {
       const file = await dbGet(prefix + i);
       if (!file) continue;
+      const isActive = state.settings.bgType === type && i === curIdx;
       const item = document.createElement('div');
-      item.className = 'media-item' + (state.settings.bgType === type && i === curIdx ? ' active-media' : '');
-      item.innerHTML = `
-        <span class="media-item-name">${file.name}</span>
-        ${i === curIdx && state.settings.bgType === type ? '<span class="media-item-badge">active</span>' : ''}
-        <button class="media-item-del" title="Remove" data-i="${i}">&#215;</button>`;
-      item.querySelector('.media-item-del').addEventListener('click', () => removeMediaItem(type, i));
+      item.className = 'media-item' + (isActive ? ' active-media' : '');
+      item.title = 'Click to set as active';
+
+      // Thumbnail
+      const thumb = document.createElement('div');
+      thumb.className = 'media-item-thumb';
+      if (type === 'image') {
+        const imgUrl = URL.createObjectURL(file);
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.onload = () => URL.revokeObjectURL(imgUrl);
+        thumb.appendChild(img);
+      } else {
+        // Video icon SVG
+        thumb.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`;
+      }
+
+      // Info
+      const info = document.createElement('div');
+      info.className = 'media-item-info';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'media-item-name';
+      nameEl.textContent = file.name;
+      const subEl = document.createElement('span');
+      subEl.className = 'media-item-sub';
+      subEl.textContent = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+      info.appendChild(nameEl);
+      info.appendChild(subEl);
+
+      // Badge
+      const badge = isActive ? (() => {
+        const b = document.createElement('span');
+        b.className = 'media-item-badge';
+        b.textContent = 'active';
+        return b;
+      })() : null;
+
+      // Delete button
+      const del = document.createElement('button');
+      del.className = 'media-item-del';
+      del.title = 'Remove';
+      del.innerHTML = '&#215;';
+      del.addEventListener('click', e => { e.stopPropagation(); removeMediaItem(type, i, item); });
+
+      item.appendChild(thumb);
+      item.appendChild(info);
+      if (badge) item.appendChild(badge);
+      item.appendChild(del);
+
+      // Click row = set as active wallpaper
+      item.addEventListener('click', async () => {
+        if (state.settings.bgType === type && state.settings[idxKey] === i) return; // already active
+        state.settings.bgType  = type;
+        state.settings[idxKey] = i;
+        _manualMediaSelect = true;  // prevent auto-advance from shifting the index
+        saveState();
+        await loadBackground();
+        await renderMediaList(type);
+        updateBgSourceBar();
+      });
+
       listEl.appendChild(item);
     } catch {}
   }
@@ -2445,7 +3093,7 @@ function renderPixabayImageResults() {
   });
 }
 
-async function loadBackground() {
+async function loadBackground(isRetry) {
   const type  = state.settings.bgType || 'gradient';   // fallback for saved states missing bgType
   const layer = document.getElementById('bg-layer');
   const vid   = document.getElementById('bg-video');
@@ -2460,13 +3108,26 @@ async function loadBackground() {
     vid.style.display = 'none';
   }
 
+  // If the IndexedDB lookup for a local image/video fails (most commonly a
+  // transient race right after a fresh browser start, before the storage
+  // backend has finished initializing), retry once after a short delay
+  // instead of permanently falling back to the default wallpaper for the
+  // rest of the session.
+  function fallbackOrRetry() {
+    if (isRetry) { showDefaultBg(); return; }
+    showDefaultBg();
+    setTimeout(() => { loadBackground(true); }, 700);
+  }
+
   if (type === 'gradient') {
     const key = state.settings.bgGradient || 'default';
     if (key === 'default') {
       showDefaultBg();
     } else {
-      layer.style.background      = GRADIENTS[key] ? GRADIENTS[key].css : GRADIENTS.default.css;
-      layer.style.backgroundImage = '';
+      layer.style.backgroundImage    = GRADIENTS[key] ? GRADIENTS[key].css : GRADIENTS.default.css;
+      layer.style.backgroundSize     = 'cover';
+      layer.style.backgroundPosition = 'center';
+      layer.style.backgroundColor    = '';
       vid.style.display = 'none';
     }
   } else if (type === 'image') {
@@ -2474,10 +3135,11 @@ async function loadBackground() {
       const total = state.settings.bgImageCount || 0;
       if (total === 0) { showDefaultBg(); }
       else {
-        if (state.settings.bgImageAutoChange && total > 1) {
+        if (!_manualMediaSelect && state.settings.bgImageAutoChange && total > 1) {
           state.settings.bgImageIndex = ((state.settings.bgImageIndex || 0) + 1) % total;
           saveState();
         }
+        _manualMediaSelect = false;
         const idx  = (state.settings.bgImageIndex || 0) % total;
         const file = await dbGet('bg-image-' + idx);
         if (file) {
@@ -2487,18 +3149,19 @@ async function loadBackground() {
           layer.style.backgroundSize     = 'cover';
           layer.style.backgroundPosition = 'center';
           vid.style.display = 'none';
-        } else { showDefaultBg(); }
+        } else { fallbackOrRetry(); }
       }
-    } catch { showDefaultBg(); }
+    } catch { fallbackOrRetry(); }
   } else if (type === 'video') {
     try {
       const total = state.settings.bgVideoCount || 0;
       if (total === 0) { showDefaultBg(); }
       else {
-        if (state.settings.bgVideoAutoChange && total > 1) {
+        if (!_manualMediaSelect && state.settings.bgVideoAutoChange && total > 1) {
           state.settings.bgVideoIndex = ((state.settings.bgVideoIndex || 0) + 1) % total;
           saveState();
         }
+        _manualMediaSelect = false;
         const idx  = (state.settings.bgVideoIndex || 0) % total;
         const file = await dbGet('bg-video-' + idx);
         if (file) {
@@ -2506,9 +3169,18 @@ async function loadBackground() {
           vid.style.display = 'block';
           layer.style.backgroundImage = '';
           layer.style.background      = '#000';
-        } else { showDefaultBg(); }
+          // Don't rely solely on the autoplay attribute — calling play()
+          // explicitly here matches what the Pixabay video branch does
+          // below and avoids cases where a freshly-assigned src doesn't
+          // autoplay on its own. If playback genuinely fails, fall back
+          // to the default wallpaper instead of sitting on a black screen.
+          const playPromise = vid.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => { showDefaultBg(); });
+          }
+        } else { fallbackOrRetry(); }
       }
-    } catch { showDefaultBg(); }
+    } catch { fallbackOrRetry(); }
   } else if (type === 'pixabay') {
     const videos = state.settings.pixabayVideos || [];
     if (videos.length === 0) { showDefaultBg(); }
@@ -2685,6 +3357,17 @@ function applySettings() {
   document.getElementById('calc-sub-settings').style.display = getPageCalc().enabled ? 'block' : 'none';
   updateCalculatorWidget();
 
+  // Countdown widget
+  const cdToggle = document.getElementById('toggle-countdown');
+  const cd = getCountdownSettings();
+  if (cdToggle) cdToggle.checked = !!cd.enabled;
+  document.getElementById('countdown-sub-settings').style.display = cd.enabled ? 'block' : 'none';
+  const cdNameInput = document.getElementById('cd-name-input');
+  if (cdNameInput) cdNameInput.value = cd.eventName || '';
+  const cdDtInput = document.getElementById('cd-datetime-input');
+  if (cdDtInput && cd.targetDate) cdDtInput.value = cd.targetDate;
+  updateCountdownWidget();
+
   // Layout mode
   applyBoardsLayout(state.settings.boardsLayout || 'classic');
 
@@ -2742,6 +3425,19 @@ function applyBoardsLayout(layout) {
   try { updateNotesWidget(); }      catch(e) {}
   try { updateSearchWidget(); }     catch(e) {}
   try { updateCalculatorWidget(); } catch(e) {}
+  try { updateCountdownWidget(); }  catch(e) {}
+  // Re-sync countdown settings panel UI to the now-active layout's data
+  try {
+    const cd2 = getCountdownSettings();
+    const cdTog = document.getElementById('toggle-countdown');
+    if (cdTog) cdTog.checked = !!cd2.enabled;
+    const cdSub = document.getElementById('countdown-sub-settings');
+    if (cdSub) cdSub.style.display = cd2.enabled ? 'block' : 'none';
+    const cdNm = document.getElementById('cd-name-input');
+    if (cdNm) cdNm.value = cd2.eventName || '';
+    const cdDt = document.getElementById('cd-datetime-input');
+    if (cdDt) cdDt.value = cd2.targetDate || '';
+  } catch(e) {}
   // Re-render the page tabs so classic topbar refreshes after switching back
   try { renderPages(); }            catch(e) {}
   // Refresh tint sliders & clock-style selector to show the now-active mode's values
@@ -3128,6 +3824,19 @@ function _initNoteWidget(widget, note) {
     for (const item of e.clipboardData.items) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
+        // One image per note max; also enforce global cap for first-image insertions
+        if (_noteBodyHasImage(body)) {
+          toast('Each note can only contain one image — delete the existing one first.', 'error');
+          return;
+        }
+        if (countNotesWithImages() >= MAX_NOTES_WITH_IMAGES) {
+          toast(
+            `Image limit reached — max ${MAX_NOTES_WITH_IMAGES} notes can contain images across all layouts. ` +
+            'Remove images from another note to free a slot.',
+            'error'
+          );
+          return;
+        }
         _insertNoteImage(item.getAsFile(), body, noteId);
         return;
       }
@@ -3160,6 +3869,19 @@ function _initNoteWidget(widget, note) {
 
   // ── Image button ──
   imgBtn.addEventListener('click', () => {
+    // One image per note max; also enforce global cap for first-image insertions
+    if (_noteBodyHasImage(body)) {
+      toast('Each note can only contain one image — delete the existing one first.', 'error');
+      return;
+    }
+    if (countNotesWithImages() >= MAX_NOTES_WITH_IMAGES) {
+      toast(
+        `Image limit reached — max ${MAX_NOTES_WITH_IMAGES} notes can contain images across all layouts. ` +
+        'Remove images from another note to free a slot.',
+        'error'
+      );
+      return;
+    }
     activeNoteId   = noteId;
     activeNoteBody = body;
     document.getElementById('notes-img-input').click();
@@ -3174,11 +3896,17 @@ function deleteNote(noteId) {
   const notes = getPageNotes();
   if (isMinimal) {
     getMgWidgets().notesList = notes.filter(n => n.id !== noteId);
+    if (!getMgWidgets().notesList.length) {
+      setNotesEnabled(false);
+      const t = document.getElementById('toggle-notes');
+      if (t) t.checked = false;
+    }
   } else {
+    // Store on the page object — does NOT affect other pages' notesEnabled flag
     const pg = currentPage();
     pg.notesList = notes.filter(n => n.id !== noteId);
     if (!pg.notesList.length) {
-      setNotesEnabled(false);
+      setNotesEnabled(false, pg);          // pass pg explicitly — no global bleed
       const t = document.getElementById('toggle-notes');
       if (t) t.checked = false;
     }
@@ -3186,12 +3914,6 @@ function deleteNote(noteId) {
   saveState();
   const widget = document.querySelector(`.notes-widget[data-note-id="${noteId}"]`);
   if (widget) widget.remove();
-  if (!getPageNotes().length) {
-    setNotesEnabled(false);
-    const t = document.getElementById('toggle-notes');
-    if (t) t.checked = false;
-    saveState();
-  }
 }
 
 function addNewNote() {
@@ -3376,25 +4098,204 @@ function _bindImageWrapperEvents(wrapper, body, noteId) {
   });
 }
 
-function _insertNoteImage(file, body, noteId) {
-  const reader = new FileReader();
-  reader.onload = ev => {
-    if (!body) return;
-    body.focus();
+// ── Image compression helper ─────────────────────────────────────────────────
+// Compresses a File/Blob to a base64 data-URL whose length is below maxBytes.
+// Strategy: draw onto canvas, export as JPEG, step quality down by 0.1 each
+// iteration; if quality bottoms out and the image is still too large, halve
+// the canvas dimensions and restart. Images already under the limit pass
+// through as-is (preserving format — PNG, GIF, etc.).
+const NOTE_IMG_MAX_BYTES = 100 * 1024; // 100 KB — compressed at insert time so backup is always fast
 
-    // ── Wrapper (resizable via CSS resize: both) ──
-    const wrapper = document.createElement('div');
-    wrapper.className       = 'notes-img-wrapper';
-    wrapper.contentEditable = 'false';
+function _compressImageFile(file) {
+  return new Promise((resolve) => {
+    const rawReader = new FileReader();
+    rawReader.onload = ev => {
+      const originalDataUrl = ev.target.result;
 
-    const img = document.createElement('img');
-    img.src = ev.target.result;
-    img.alt = '';
+      // Already under the limit — no work needed
+      if (originalDataUrl.length <= NOTE_IMG_MAX_BYTES) {
+        resolve(originalDataUrl);
+        return;
+      }
 
-    // ── Mini toolbar ──
-    const toolbar = document.createElement('div');
-    toolbar.className = 'notes-img-toolbar';
-    toolbar.innerHTML = `
+      // Load into an Image to get natural dimensions
+      const img = new Image();
+      img.onload = () => {
+        let W = img.naturalWidth;
+        let H = img.naturalHeight;
+        const canvas = document.createElement('canvas');
+        const ctx    = canvas.getContext('2d');
+
+        const tryCompress = (w, h, quality) => {
+          canvas.width  = w;
+          canvas.height = h;
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          if (dataUrl.length <= NOTE_IMG_MAX_BYTES) {
+            resolve(dataUrl);
+            return;
+          }
+
+          // Step quality down
+          if (quality > 0.15) {
+            tryCompress(w, h, Math.round((quality - 0.1) * 100) / 100);
+            return;
+          }
+
+          // Quality bottomed out — halve dimensions and restart at quality 0.85
+          const newW = Math.max(64, Math.round(w / 2));
+          const newH = Math.max(64, Math.round(h / 2));
+          if (newW === 64 && newH === 64) {
+            // Absolute floor — return whatever we have at this point
+            resolve(dataUrl);
+            return;
+          }
+          tryCompress(newW, newH, 0.85);
+        };
+
+        tryCompress(W, H, 0.85);
+      };
+      img.onerror = () => resolve(originalDataUrl); // fallback: use original
+      img.src = originalDataUrl;
+    };
+    rawReader.readAsDataURL(file);
+  });
+}
+
+// ── Icon compression helper ───────────────────────────────────────────────────
+// Compresses a link icon File/Blob to a ≤10 KB base64 JPEG.
+// Strategy:
+//   1. Scale down to max 64×64 px (preserving aspect ratio) — icons are tiny UI
+//      elements; anything larger is wasted bytes.
+//   2. Export as JPEG, step quality down by 0.1 each round.
+//   3. If quality bottoms out, halve dimensions and restart at q=0.8.
+//   4. Absolute floor: 16×16 px — return whatever fits at that size.
+// PNG/GIF/WebP inputs are all rasterised through Canvas → JPEG output, which
+// gives the best compression ratio for photo-style icons.  Flat-colour icons
+// (logos with sharp edges) may look slightly softer, but remain crisp at 64px.
+const ICON_MAX_BYTES = 10 * 1024; // 10 KB target
+const ICON_MAX_DIM   = 64;        // max px per side
+
+function _compressIconFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        // Scale to fit within 64×64, preserving aspect ratio
+        let W = img.naturalWidth, H = img.naturalHeight;
+        if (W > ICON_MAX_DIM || H > ICON_MAX_DIM) {
+          const scale = ICON_MAX_DIM / Math.max(W, H);
+          W = Math.max(1, Math.round(W * scale));
+          H = Math.max(1, Math.round(H * scale));
+        }
+
+        const canvas = document.createElement('canvas');
+        const ctx    = canvas.getContext('2d');
+
+        const attempt = (w, h, quality) => {
+          canvas.width  = w;
+          canvas.height = h;
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const url = canvas.toDataURL('image/jpeg', quality);
+
+          if (url.length <= ICON_MAX_BYTES) { resolve(url); return; }
+
+          // Step quality down
+          if (quality > 0.15) {
+            attempt(w, h, Math.round((quality - 0.1) * 10) / 10);
+            return;
+          }
+
+          // Quality bottomed out — halve dimensions and restart
+          const nw = Math.max(16, Math.round(w / 2));
+          const nh = Math.max(16, Math.round(h / 2));
+          if (nw <= 16 && nh <= 16) { resolve(url); return; } // absolute floor
+          attempt(nw, nh, 0.8);
+        };
+
+        attempt(W, H, 0.8);
+      };
+      img.onerror = () => resolve(ev.target.result); // fallback: use as-is
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Universal notes-with-images counter ──────────────────────────────────────
+// Scans EVERY notesList in EVERY layout (all classic pages + minimal groups)
+// and returns the number of notes that contain at least one image.
+// This is the single source of truth for the backup-size guard.
+const MAX_NOTES_WITH_IMAGES = 6;
+
+function countNotesWithImages() {
+  let count = 0;
+  // Classic mode: every page
+  (state.pages || []).forEach(pg => {
+    (pg.notesList || []).forEach(note => {
+      if (note.content && note.content.includes('<img')) count++;
+    });
+  });
+  // Minimal mode widget store
+  (state.settings.mgWidgets?.notesList || []).forEach(note => {
+    if (note.content && note.content.includes('<img')) count++;
+  });
+  return count;
+}
+
+// Returns true if the given note body already contains at least one image
+function _noteBodyHasImage(body) {
+  return !!body && !!body.querySelector('img');
+}
+
+async function _insertNoteImage(file, body, noteId) {
+  // ── One image per note + universal image-notes cap ──
+  if (_noteBodyHasImage(body)) {
+    toast('Each note can only contain one image — delete the existing one first.', 'error');
+    return;
+  }
+  if (countNotesWithImages() >= MAX_NOTES_WITH_IMAGES) {
+    toast(
+      `Image limit reached — max ${MAX_NOTES_WITH_IMAGES} notes can contain images across all layouts. ` +
+      'Remove images from another note to free a slot.',
+      'error'
+    );
+    return;
+  }
+
+  // Show a subtle inline status while compressing large images
+  const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+  let statusEl = null;
+  if (file.size > NOTE_IMG_MAX_BYTES) {
+    statusEl = document.createElement('p');
+    statusEl.textContent = `⏳ Compressing image (${sizeMB} MB)…`;
+    statusEl.style.cssText = 'color:var(--text-muted);font-size:11px;font-style:italic;';
+    body.appendChild(statusEl);
+  }
+
+  const dataUrl = await _compressImageFile(file);
+  if (statusEl) statusEl.remove();
+
+  if (!body) return;
+  body.focus();
+
+  // ── Wrapper (resizable via CSS resize: both) ──
+  const wrapper = document.createElement('div');
+  wrapper.className       = 'notes-img-wrapper';
+  wrapper.contentEditable = 'false';
+
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  img.alt = '';
+
+  // ── Mini toolbar ──
+  const toolbar = document.createElement('div');
+  toolbar.className = 'notes-img-toolbar';
+  toolbar.innerHTML = `
       <button class="nim-btn" title="Float left"  data-align="left">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="9" width="9" height="8" rx="1"/><line x1="14" y1="9" x2="22" y2="9"/><line x1="14" y1="13" x2="22" y2="13"/><line x1="2" y1="4" x2="22" y2="4"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
       </button>
@@ -3409,48 +4310,47 @@ function _insertNoteImage(file, body, noteId) {
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
       </button>`;
 
-    wrapper.appendChild(img);
-    wrapper.appendChild(toolbar);
+  wrapper.appendChild(img);
+  wrapper.appendChild(toolbar);
 
-    _bindImageWrapperEvents(wrapper, body, noteId);
+  _bindImageWrapperEvents(wrapper, body, noteId);
 
-    // ── Insert at cursor ──
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      if (body.contains(range.commonAncestorContainer)) {
-        range.deleteContents();
-        range.insertNode(wrapper);
+  // ── Insert at cursor ──
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    if (body.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      range.insertNode(wrapper);
 
-        // Ensure there's always a writable paragraph after the image so the
-        // user can continue typing below it without getting stuck.
-        let afterNode = wrapper.nextSibling;
-        if (!afterNode || (afterNode.nodeType === Node.ELEMENT_NODE && afterNode.classList && afterNode.classList.contains('notes-img-wrapper'))) {
-          const para = document.createElement('p');
-          para.innerHTML = '<br>';
-          wrapper.insertAdjacentElement('afterend', para);
-          afterNode = para;
-        }
-        // Place cursor at the start of the node that follows the image
-        try {
-          range.setStart(afterNode, 0);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch (_) {
-          range.setStartAfter(wrapper);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      } else { body.appendChild(wrapper); }
+      // Ensure there's always a writable paragraph after the image so the
+      // user can continue typing below it without getting stuck.
+      let afterNode = wrapper.nextSibling;
+      if (!afterNode || (afterNode.nodeType === Node.ELEMENT_NODE && afterNode.classList && afterNode.classList.contains('notes-img-wrapper'))) {
+        const para = document.createElement('p');
+        para.innerHTML = '<br>';
+        wrapper.insertAdjacentElement('afterend', para);
+        afterNode = para;
+      }
+      // Place cursor at the start of the node that follows the image
+      try {
+        range.setStart(afterNode, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (_) {
+        range.setStartAfter(wrapper);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
     } else { body.appendChild(wrapper); }
+  } else { body.appendChild(wrapper); }
 
-    const n = getPageNotes().find(x => x.id === noteId);
-    if (n) { n.content = body.innerHTML; saveState(); }
-  };
-  reader.readAsDataURL(file);
+  const n = getPageNotes().find(x => x.id === noteId);
+  if (n) { n.content = body.innerHTML; saveState(); }
 }
+
 
 // ─── CLOCK ───────────────────────────────────────────
 function updateClock() {
@@ -3504,7 +4404,27 @@ function tickClock() {
     ['glass','minimal','neon','retro','bold'].forEach(st => widget.classList.remove('clock-style-' + st));
     widget.classList.add('clock-style-' + style);
   }
-  document.getElementById('clock-time').textContent = timeStr;
+  const clockTimeEl = document.getElementById('clock-time');
+  // Reuse or lazily create the inner spans so we never thrash the DOM on every tick
+  let mainSpan = clockTimeEl.querySelector('.clock-time-main');
+  let ampmSpan = clockTimeEl.querySelector('.clock-ampm');
+  if (!mainSpan) {
+    clockTimeEl.innerHTML = '';
+    mainSpan = document.createElement('span');
+    mainSpan.className = 'clock-time-main';
+    clockTimeEl.appendChild(mainSpan);
+  }
+  mainSpan.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}${secPart}`;
+  if (suffix.trim()) {
+    if (!ampmSpan) {
+      ampmSpan = document.createElement('span');
+      ampmSpan.className = 'clock-ampm';
+      clockTimeEl.appendChild(ampmSpan);
+    }
+    ampmSpan.textContent = suffix.trim();
+  } else if (ampmSpan) {
+    ampmSpan.remove();
+  }
   document.getElementById('clock-date').textContent = dateStr;
 }
 function initClockDrag() {
@@ -3757,7 +4677,18 @@ function initReportPanel() {
   });
 }
 
-// ─── DRAG & DROP: Image/video over page ──────────────
+// ─── PRIVACY PANEL ────────────────────────────────────
+function initPrivacyPanel() {
+  const panel    = document.getElementById('privacy-panel');
+  const closeBtn = document.getElementById('privacy-close-btn');
+  if (!panel) return;
+  function openPanel()  { panel.setAttribute('aria-hidden','false'); panel.classList.add('prv-visible'); }
+  function closePanel() { panel.classList.remove('prv-visible'); panel.setAttribute('aria-hidden','true'); }
+  document.getElementById('open-privacy-panel').addEventListener('click', openPanel);
+  closeBtn.addEventListener('click', closePanel);
+  panel.addEventListener('click', e => { if (e.target === panel) closePanel(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && panel.classList.contains('prv-visible')) closePanel(); });
+}
 // Track internal element drags so the wallpaper handler never fires on them.
 // dragstart bubbles up from every draggable inside the page (link cards, boards,
 // note images). External OS file drops never fire dragstart, so this flag is
@@ -3819,16 +4750,15 @@ function bindStaticEvents() {
   document.getElementById('link-icon-file-btn').addEventListener('click', () => {
     document.getElementById('link-icon-file').click();
   });
-  document.getElementById('link-icon-file').addEventListener('change', function() {
+  document.getElementById('link-icon-file').addEventListener('change', async function() {
     const file = this.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      _pendingIconData = ev.target.result;
-      document.getElementById('link-icon-file-name').textContent = file.name;
-      _syncIconUI('local', _pendingIconData);
-    };
-    reader.readAsDataURL(file);
+    const nameEl = document.getElementById('link-icon-file-name');
+    nameEl.textContent = 'Compressing…';
+    _pendingIconData = await _compressIconFile(file);
+    const kb = (_pendingIconData.length / 1024).toFixed(1);
+    nameEl.textContent = `${file.name} (${kb} KB)`;
+    _syncIconUI('local', _pendingIconData);
   });
 
   // ── Confirm modal ──
@@ -3837,12 +4767,13 @@ function bindStaticEvents() {
   // ── Top bar ──
   document.getElementById('add-page-btn').addEventListener('click', () => openPageModal());
   document.getElementById('btn-settings').addEventListener('click', () => {
-    applySettings(); openSettingsPanel();
+    applySettings(); openSettingsPanel(); gistInitUI(); zenrInitUpdateUI();
   });
   document.getElementById('sett-close-btn').addEventListener('click', closeSettingsPanel);
 
   // ── Report Panel ──
   initReportPanel();
+  initPrivacyPanel();
 
   // ── Import/Export/Wallpaper (now inside settings modal) ──
   document.getElementById('btn-import').addEventListener('click',   () => showModal('modal-import'));
@@ -4140,6 +5071,27 @@ function bindStaticEvents() {
     if (!e.target.checked) {
       document.getElementById('calc-history-panel').classList.add('hidden');
     }
+  });
+
+  // ── Countdown Widget settings ──
+  document.getElementById('toggle-countdown').addEventListener('change', e => {
+    const cd = getCountdownSettings();
+    cd.enabled = e.target.checked;
+    document.getElementById('countdown-sub-settings').style.display = e.target.checked ? 'block' : 'none';
+    saveState();
+    updateCountdownWidget();
+  });
+  document.getElementById('cd-name-input').addEventListener('input', e => {
+    getCountdownSettings().eventName = e.target.value;
+    saveState();
+    _tickCountdown();
+  });
+  document.getElementById('cd-datetime-input').addEventListener('change', e => {
+    const cd = getCountdownSettings();
+    cd.targetDate = e.target.value;
+    if (!cd.createdAt) cd.createdAt = Date.now();
+    saveState();
+    _tickCountdown();
   });
 
   // ── Background source clear buttons ──
@@ -4489,6 +5441,8 @@ let _calcState = {
   justEvaled: false,
   waitingForOperand: false,
   expr: '',
+  lastOp: null,
+  lastOperand: null,
 };
 let _calcHistory = [];
 
@@ -4574,9 +5528,16 @@ function _calcEval() {
     case '÷': res = b === 0 ? 'Error' : a / b; break;
     default: res = b;
   }
+  // Guard against NaN/Infinity from malformed operands (e.g. a stray "-"
+  // left over from editing) so the display shows "Error" instead of "NaN".
+  if (res !== 'Error' && !Number.isFinite(res)) res = 'Error';
   const exprStr = `${_calcState.prev} ${_calcState.op} ${_calcState.current}`;
   const resStr  = res === 'Error' ? 'Error' : String(parseFloat(res.toFixed(10)));
   _calcPushHistory(exprStr, resStr);
+  // Remember the operation so a follow-up "=" press can repeat it
+  // (standard calculator behavior: 5 + 3 = = =  →  8, 11, 14 ...).
+  _calcState.lastOp      = _calcState.op;
+  _calcState.lastOperand = _calcState.current;
   _calcState.expr       = exprStr + ' =';
   _calcState.current    = resStr;
   _calcState.prev       = null;
@@ -4588,9 +5549,10 @@ function _calcEval() {
 function _calcHandleBtn(btn) {
   const action = btn.dataset.action;
   const val    = btn.dataset.val;
+  const isError = _calcState.current === 'Error';
 
   if (action === 'num') {
-    if (_calcState.justEvaled || _calcState.waitingForOperand) {
+    if (_calcState.justEvaled || _calcState.waitingForOperand || isError) {
       _calcState.current = val;
       _calcState.justEvaled = false;
       _calcState.waitingForOperand = false;
@@ -4599,7 +5561,7 @@ function _calcHandleBtn(btn) {
     }
   }
   else if (action === 'dot') {
-    if (_calcState.justEvaled || _calcState.waitingForOperand) {
+    if (_calcState.justEvaled || _calcState.waitingForOperand || isError) {
       _calcState.current = '0.';
       _calcState.justEvaled = false;
       _calcState.waitingForOperand = false;
@@ -4608,16 +5570,21 @@ function _calcHandleBtn(btn) {
     }
   }
   else if (action === 'clear') {
-    _calcState = { current: '0', prev: null, op: null, justEvaled: false, waitingForOperand: false, expr: '' };
+    _calcState = { current: '0', prev: null, op: null, justEvaled: false, waitingForOperand: false, expr: '', lastOp: null, lastOperand: null };
   }
   else if (action === 'sign') {
-    _calcState.current = String(-parseFloat(_calcState.current));
+    if (!isError) _calcState.current = String(-parseFloat(_calcState.current));
   }
   else if (action === 'pct') {
-    _calcState.current = String(parseFloat(_calcState.current) / 100);
+    if (!isError) _calcState.current = String(parseFloat(_calcState.current) / 100);
   }
   else if (action === 'op') {
+    if (isError) {
+      // Don't chain an operation onto an error result — start clean from 0.
+      _calcState.current = '0';
+    }
     if (_calcState.prev !== null && _calcState.op && !_calcState.waitingForOperand) _calcEval();
+    if (_calcState.current === 'Error') { _calcState.current = '0'; }
     _calcState.prev              = _calcState.current;
     _calcState.op                = val;
     _calcState.justEvaled        = false;
@@ -4625,9 +5592,151 @@ function _calcHandleBtn(btn) {
     _calcState.expr              = _calcState.prev + ' ' + val;
   }
   else if (action === 'equals') {
-    _calcEval();
+    if (_calcState.op === null && _calcState.justEvaled && _calcState.lastOp) {
+      // Repeat the last operation against the current result, e.g.
+      // 5 + 3 = (→8)  then = = =  →  11, 14, 17 ...
+      _calcState.prev = _calcState.current;
+      _calcState.op   = _calcState.lastOp;
+      _calcState.current = _calcState.lastOperand;
+      _calcEval();
+    } else {
+      _calcEval();
+    }
   }
   _calcDisplay();
+}
+
+
+/* ═══════════════════════════════════════════════════
+   COUNTDOWN WIDGET
+   ═══════════════════════════════════════════════════ */
+let _cdInterval = null;
+
+// Layout-isolated countdown getter — mirrors the same pattern as getPageCalc / getPageSearch.
+// Classic mode stores countdown in state.settings.countdown (top-level, page-independent).
+// Minimal mode stores it inside getMgWidgets().countdown so it is 100% isolated.
+function getCountdownSettings() {
+  if ((state.settings.boardsLayout || 'classic') === 'minimal') {
+    const w = getMgWidgets();
+    if (!w.countdown) w.countdown = { enabled: false, eventName: '', targetDate: '', position: { x: 20, y: 200 }, createdAt: null };
+    return w.countdown;
+  }
+  // Classic mode
+  if (!state.settings.countdown) state.settings.countdown = { enabled: false, eventName: '', targetDate: '', position: { x: 20, y: 200 }, createdAt: null };
+  return state.settings.countdown;
+}
+
+function updateCountdownWidget() {
+  // Always kill the existing tick first — layout may have just switched,
+  // so the old interval would be reading the wrong layout's data.
+  if (_cdInterval) { clearInterval(_cdInterval); _cdInterval = null; }
+
+  const cd = getCountdownSettings();
+  const widget = document.getElementById('countdown-widget');
+  if (!widget) return;
+
+  if (!cd.enabled) {
+    widget.classList.add('hidden');
+    return;
+  }
+
+  widget.classList.remove('hidden');
+  const pos = cd.position || { x: 20, y: 200 };
+  widget.style.left = pos.x + 'px';
+  widget.style.top  = (pos.y - getScrollY()) + 'px';
+  _tickCountdown();
+  _cdInterval = setInterval(_tickCountdown, 1000);
+}
+
+function _tickCountdown() {
+  const cd = getCountdownSettings();
+  const nameEl   = document.getElementById('cd-event-name-display');
+  const targetEl = document.getElementById('cd-target-display');
+  const daysEl   = document.getElementById('cd-days');
+  const hoursEl  = document.getElementById('cd-hours');
+  const minsEl   = document.getElementById('cd-mins');
+  const secsEl   = document.getElementById('cd-secs');
+  const barEl    = document.getElementById('cd-bar-fill');
+  if (!nameEl || !daysEl) return;
+
+  nameEl.textContent = cd.eventName || 'Set an Event';
+
+  if (!cd.targetDate) {
+    targetEl.textContent = 'No date set';
+    daysEl.textContent = hoursEl.textContent = minsEl.textContent = secsEl.textContent = '--';
+    if (barEl) barEl.style.width = '100%';
+    return;
+  }
+
+  const target = new Date(cd.targetDate).getTime();
+  const now    = Date.now();
+  const diff   = target - now;
+
+  // Format target date for display
+  const td = new Date(cd.targetDate);
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  targetEl.textContent = `${mo[td.getMonth()]} ${td.getDate()}, ${td.getFullYear()} · ${String(td.getHours()).padStart(2,'0')}:${String(td.getMinutes()).padStart(2,'0')}`;
+
+  if (diff <= 0) {
+    daysEl.textContent = hoursEl.textContent = minsEl.textContent = secsEl.textContent = '00';
+    if (barEl) barEl.style.width = '0%';
+    nameEl.textContent = '🎉 ' + (cd.eventName || 'Event') + '!';
+    return;
+  }
+
+  const totalSec = Math.floor(diff / 1000);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+
+  daysEl.textContent  = String(d).padStart(2, '0');
+  hoursEl.textContent = String(h).padStart(2, '0');
+  minsEl.textContent  = String(m).padStart(2, '0');
+  secsEl.textContent  = String(s).padStart(2, '0');
+
+  // Progress bar: fill = fraction of time remaining vs. 30-day reference window
+  if (barEl && cd.createdAt) {
+    const totalSpan = target - cd.createdAt;
+    const pct = totalSpan > 0 ? Math.min(100, Math.max(0, (diff / totalSpan) * 100)) : 0;
+    barEl.style.width = pct + '%';
+  } else if (barEl) {
+    barEl.style.width = '60%';
+  }
+}
+
+function initCountdownDrag() {
+  const widget = document.getElementById('countdown-widget');
+  if (!widget) return;
+  let dragState = null;
+  widget.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const cd = getCountdownSettings();
+    const curPos = cd.position || { x: 20, y: 200 };
+    dragState = {
+      startX: e.clientX, startY: e.clientY,
+      origX: curPos.x || 20,
+      origY: (curPos.y || 200) - getScrollY(),
+    };
+    widget.classList.add('cd-grabbing');
+    widget.setPointerCapture(e.pointerId);
+  });
+  widget.addEventListener('pointermove', e => {
+    if (!dragState) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    const nx = dragState.origX + dx;
+    const ny = dragState.origY + dy + getScrollY();
+    widget.style.left = (dragState.origX + dx) + 'px';
+    widget.style.top  = (dragState.origY + dy) + 'px';
+    getCountdownSettings().position = { x: nx, y: ny };
+  });
+  widget.addEventListener('pointerup', () => {
+    if (!dragState) return;
+    dragState = null;
+    widget.classList.remove('cd-grabbing');
+    saveState();
+  });
 }
 
 
@@ -4721,9 +5830,19 @@ function initCalculatorWidget() {
     btn.addEventListener('click', () => _calcHandleBtn(btn));
   });
 
-  // Keyboard support (when widget visible)
+  // Keyboard support (when widget visible).
+  // Guard: only handle these keys when the user isn't actively typing
+  // somewhere else on the page (search bar, notes, link/board name fields,
+  // settings inputs, etc). Without this guard, every digit, '+', '-', '*',
+  // '.', Enter, Backspace and Escape pressed *anywhere* in the app — not
+  // just on the calculator — was silently feeding into the calculator's
+  // internal state, and '/' was being preventDefault()'d everywhere,
+  // which broke typing forward-slashes (e.g. in URLs) in other fields
+  // whenever the calculator widget was enabled.
   document.addEventListener('keydown', e => {
     if (widget.classList.contains('hidden')) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const k = e.key;
     if (k >= '0' && k <= '9') { _calcHandleBtn({ dataset: { action: 'num', val: k } }); }
     else if (k === '.') { _calcHandleBtn({ dataset: { action: 'dot' } }); }
@@ -4733,8 +5852,17 @@ function initCalculatorWidget() {
     else if (k === '/') { e.preventDefault(); _calcHandleBtn({ dataset: { action: 'op', val: '÷' } }); }
     else if (k === 'Enter' || k === '=') { _calcHandleBtn({ dataset: { action: 'equals' } }); }
     else if (k === 'Backspace') {
-      if (_calcState.current.length > 1) _calcState.current = _calcState.current.slice(0, -1);
-      else _calcState.current = '0';
+      // Editing right after a result or right after pressing an operator
+      // should start a fresh number, not chip away at stale digits.
+      if (_calcState.justEvaled || _calcState.waitingForOperand) {
+        _calcState.current = '0';
+      } else if (_calcState.current.length > 1) {
+        _calcState.current = _calcState.current.slice(0, -1);
+      } else {
+        _calcState.current = '0';
+      }
+      _calcState.justEvaled = false;
+      _calcState.waitingForOperand = false;
       _calcDisplay();
     }
     else if (k === 'Escape') { _calcHandleBtn({ dataset: { action: 'clear' } }); }
@@ -4754,6 +5882,12 @@ function _onMainScroll() {
   updateClock();
   updateSearchWidget();
   updateCalculatorWidget();
+  // Reposition countdown widget on scroll
+  const cdWidget = document.getElementById('countdown-widget');
+  if (cdWidget && !cdWidget.classList.contains('hidden')) {
+    const cdPos = getCountdownSettings().position || { x: 20, y: 200 };
+    cdWidget.style.top = (cdPos.y - getScrollY()) + 'px';
+  }
   document.querySelectorAll('.notes-widget').forEach(w => {
     const noteId = w.dataset.noteId;
     const n = getPageNotes().find(x => x.id === noteId);
@@ -4767,58 +5901,67 @@ function _onMainScroll() {
 // Renders the bubble at <body> level so #modal-settings
 // overflow:hidden never clips it.
 function initLayoutInfoPortal() {
-  const tip = document.querySelector('.layout-info-tip');
-  if (!tip) return;
+  const tips = document.querySelectorAll('.layout-info-tip');
+  if (!tips.length) return;
 
-  // Build the portal element once
-  const portal = document.createElement('div');
-  portal.id = 'layout-info-portal';
-  // "NOT SYNC" should be bold
-  portal.innerHTML = tip.dataset.tooltip.replace('NOT SYNC', '<strong>NOT SYNC</strong>');
-  document.body.appendChild(portal);
+  // Single shared portal element
+  let portal = document.getElementById('layout-info-portal');
+  if (!portal) {
+    portal = document.createElement('div');
+    portal.id = 'layout-info-portal';
+    document.body.appendChild(portal);
+  }
 
   let hideTimer = null;
+  let activeTip = null;
 
-  function show() {
+  function show(tip) {
     clearTimeout(hideTimer);
-    const rect = tip.getBoundingClientRect();
-    const MARGIN = 8; // gap between icon and bubble
+    activeTip = tip;
+    tip.classList.add('tip-active');
 
-    // Position below the icon, left-aligned to icon but clamped to viewport
+    // Render tooltip content — highlight keywords with <strong>, handle line breaks
+    const raw = tip.dataset.tooltip || '';
+    portal.innerHTML = raw
+      .replace(/NOT SYNC/g, '<strong>NOT SYNC</strong>')
+      .replace(/✦/g, '<strong style="color:var(--accent)">✦</strong>')
+      .replace(/⚠️/g, '<strong style="color:#ffb347">⚠️</strong>')
+      .replace(/\n/g, '<br>')
+      .replace(/(①|②|③|④)/g, '<strong style="color:var(--accent)">$1</strong>');
+
+    const rect = tip.getBoundingClientRect();
+    const MARGIN = 8;
+    const portalW = tip.dataset.tooltip?.length > 200 ? 320 : 280;
+
     let left = rect.left;
-    const portalW = 280;
-    // Clamp so it never goes off the right edge
-    if (left + portalW > window.innerWidth - 8) {
-      left = window.innerWidth - 8 - portalW;
-    }
-    // Never off the left edge
+    if (left + portalW > window.innerWidth - 8) left = window.innerWidth - 8 - portalW;
     if (left < 8) left = 8;
 
+    portal.style.setProperty('--portal-w', portalW + 'px');
     portal.style.left = left + 'px';
     portal.style.top  = (rect.bottom + MARGIN) + 'px';
 
-    // Reposition the arrow to always point at the icon
     const arrowLeft = Math.min(Math.max(rect.left + rect.width / 2 - left - 4, 10), portalW - 20);
     portal.style.setProperty('--arrow-left', arrowLeft + 'px');
     portal.style.display = 'block';
-    // Force reflow for transition
-    portal.offsetHeight;
+    portal.offsetHeight; // force reflow
     portal.classList.add('portal-visible');
-    tip.classList.add('tip-active');
   }
 
-  function hide() {
+  function hide(tip) {
     hideTimer = setTimeout(() => {
       portal.classList.remove('portal-visible');
       setTimeout(() => { portal.style.display = 'none'; }, 190);
-      tip.classList.remove('tip-active');
+      if (activeTip) { activeTip.classList.remove('tip-active'); activeTip = null; }
     }, 80);
   }
 
-  tip.addEventListener('mouseenter', show);
-  tip.addEventListener('mouseleave', hide);
-  tip.addEventListener('focus',      show);
-  tip.addEventListener('blur',       hide);
+  tips.forEach(tip => {
+    tip.addEventListener('mouseenter', () => show(tip));
+    tip.addEventListener('mouseleave', () => hide(tip));
+    tip.addEventListener('focus',      () => show(tip));
+    tip.addEventListener('blur',       () => hide(tip));
+  });
 }
 
 // ─── INTRO VIDEO (plays once on first install) ───────
@@ -4850,36 +5993,942 @@ function _runIntro() {
   });
 }
 
+// ══════════════════════════════════════════════════════════════════
+// SOFTWARE UPDATE CHECKER — compares installed version against the
+// manifest.json currently sitting on the repo's main branch (this repo
+// doesn't use GitHub Releases — files are pushed straight to main).
+// ══════════════════════════════════════════════════════════════════
+
+const ZENR_GH_OWNER   = 'Archimetrix';
+const ZENR_GH_REPO    = 'ZenR-NewTab';
+const ZENR_GH_BRANCH  = 'main';
+const ZENR_UPDATE_MANIFEST_API_URL = `https://api.github.com/repos/${ZENR_GH_OWNER}/${ZENR_GH_REPO}/contents/manifest.json?ref=${ZENR_GH_BRANCH}`;
+const ZENR_UPDATE_DOWNLOAD_URL     = `https://github.com/${ZENR_GH_OWNER}/${ZENR_GH_REPO}/archive/refs/heads/${ZENR_GH_BRANCH}.zip`;
+const ZENR_REPO_COMMITS_URL        = `https://github.com/${ZENR_GH_OWNER}/${ZENR_GH_REPO}/commits/${ZENR_GH_BRANCH}`;
+const ZENR_UPDATE_AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12h between silent auto-checks
+
+let _zenrUpdateChecking = false;
+
+// Compares two semver-ish strings ("2.1.0", "v2.1.0", "2.1.0-beta"). Returns 1/0/-1.
+function _zenrParseVersion(v) {
+  if (!v) return [0, 0, 0];
+  const core = String(v).trim().replace(/^v/i, '').split(/[-+]/)[0];
+  return core.split('.').map(n => parseInt(n, 10) || 0);
+}
+function _zenrCompareVersions(a, b) {
+  const pa = _zenrParseVersion(a), pb = _zenrParseVersion(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+}
+
+function _zenrFormatCheckDate(ts) {
+  if (!ts) return 'Never checked';
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, '0');
+  return `Last checked: ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Reads manifest.json straight off the main branch via the GitHub Contents
+// API (already covered by the existing api.github.com host permission) and
+// pulls out the "version" field.
+async function _zenrFetchRemoteVersion() {
+  const res = await fetch(ZENR_UPDATE_MANIFEST_API_URL, {
+    headers: { 'Accept': 'application/vnd.github+json' }
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('manifest.json not found on GitHub');
+    if (res.status === 403) throw new Error('GitHub rate limit reached — try again later');
+    throw new Error('GitHub API error: ' + res.status);
+  }
+  const data = await res.json();
+  if (!data.content) throw new Error('Unexpected response from GitHub');
+
+  let remoteManifest;
+  try {
+    const jsonText = atob(data.content.replace(/\n/g, ''));
+    remoteManifest = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error('Could not read manifest.json from GitHub');
+  }
+  if (!remoteManifest.version) throw new Error('No version field in remote manifest.json');
+
+  return {
+    version: String(remoteManifest.version),
+    htmlUrl: ZENR_REPO_COMMITS_URL
+  };
+}
+
+
+function _zenrStorageGet(keys) {
+  return new Promise(resolve => {
+    try { chrome.storage.local.get(keys, resolve); } catch (e) { resolve({}); }
+  });
+}
+function _zenrStorageSet(obj) {
+  return new Promise(resolve => {
+    try { chrome.storage.local.set(obj, resolve); } catch (e) { resolve(); }
+  });
+}
+
+// Paints the Updates section inside Settings + the gear-icon dot.
+function _zenrRenderUpdateUI(opts = {}) {
+  const currentVersion = chrome.runtime.getManifest().version;
+
+  const curVerEl    = document.getElementById('upd-current-version');
+  if (curVerEl) curVerEl.textContent = 'v' + currentVersion;
+
+  const gearDot = document.getElementById('tb-update-dot');
+  if (gearDot) gearDot.classList.toggle('hidden', !opts.isNewer);
+
+  const statusEl    = document.getElementById('upd-status-badge');
+  const downloadBtn = document.getElementById('upd-download-btn');
+  const lastCheckEl = document.getElementById('upd-last-check');
+
+  if (lastCheckEl && opts.lastCheck) lastCheckEl.textContent = _zenrFormatCheckDate(opts.lastCheck);
+  if (!statusEl) return; // settings panel markup not present (shouldn't happen, but be safe)
+
+  if (opts.checking) {
+    statusEl.className = 'gist-status-badge loading';
+    statusEl.textContent = 'Checking…';
+    statusEl.classList.remove('hidden');
+    if (downloadBtn) downloadBtn.classList.add('hidden');
+    return;
+  }
+  if (opts.error) {
+    statusEl.className = 'gist-status-badge error';
+    statusEl.textContent = opts.errorMsg || 'Check failed — try again';
+    statusEl.classList.remove('hidden');
+    if (downloadBtn) downloadBtn.classList.add('hidden');
+    return;
+  }
+  if (opts.isNewer) {
+    statusEl.className = 'gist-status-badge success';
+    statusEl.textContent = `v${opts.latestVersion} available`;
+    statusEl.classList.remove('hidden');
+    if (downloadBtn) downloadBtn.classList.remove('hidden');
+  } else if (opts.lastCheck) {
+    statusEl.className = 'gist-status-badge success';
+    statusEl.textContent = "You're up to date";
+    statusEl.classList.remove('hidden');
+    if (downloadBtn) downloadBtn.classList.add('hidden');
+  } else {
+    // Never checked yet — don't claim "up to date" before we actually know.
+    statusEl.classList.add('hidden');
+    if (downloadBtn) downloadBtn.classList.add('hidden');
+  }
+}
+
+function _zenrOpenDownload() {
+  window.open(ZENR_UPDATE_DOWNLOAD_URL, '_blank');
+}
+
+function _zenrShowUpdateBanner(latestVersion) {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  const verEl = document.getElementById('update-banner-version');
+  if (verEl) verEl.textContent = `v${latestVersion} is ready to download`;
+  banner.classList.remove('hidden');
+}
+function _zenrHideUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+// Decides whether the dismissible corner banner should (re)appear for this version.
+async function _zenrMaybeShowBanner(latestVersion) {
+  const { zenrUpdateDismissedVersion } = await _zenrStorageGet(['zenrUpdateDismissedVersion']);
+  if (zenrUpdateDismissedVersion && _zenrCompareVersions(zenrUpdateDismissedVersion, latestVersion) >= 0) {
+    return; // user already dismissed this version (or newer)
+  }
+  _zenrShowUpdateBanner(latestVersion);
+}
+
+// Core check — manual=true surfaces toasts and a "Checking…" state for the button click.
+async function zenrCheckForUpdates(manual = false) {
+  if (_zenrUpdateChecking) return;
+  _zenrUpdateChecking = true;
+  const currentVersion = chrome.runtime.getManifest().version;
+  if (manual) _zenrRenderUpdateUI({ checking: true });
+
+  try {
+    const remote = await _zenrFetchRemoteVersion();
+    const isNewer = _zenrCompareVersions(remote.version, currentVersion) > 0;
+    const now = Date.now();
+
+    await _zenrStorageSet({
+      zenrUpdateLastCheck: now,
+      zenrUpdateLatestVersion: remote.version,
+      zenrUpdateLatestUrl: remote.htmlUrl
+    });
+
+    _zenrRenderUpdateUI({ checking: false, isNewer, latestVersion: remote.version, lastCheck: now });
+
+    if (isNewer) {
+      _zenrMaybeShowBanner(remote.version);
+      if (manual) toast(`🚀 Update available — v${remote.version}`, 'success');
+    } else if (manual) {
+      toast(`You're up to date (v${currentVersion})`, 'success');
+    }
+  } catch (err) {
+    console.warn('ZenR update check failed:', err);
+    await _zenrStorageSet({ zenrUpdateLastCheck: Date.now() });
+    _zenrRenderUpdateUI({ checking: false, error: true, errorMsg: err.message, lastCheck: Date.now() });
+    if (manual) toast(err.message || 'Could not check for updates — try again later', 'error');
+  } finally {
+    _zenrUpdateChecking = false;
+  }
+}
+
+// Populates the Updates section from cached storage (no network) — called whenever Settings opens.
+async function zenrInitUpdateUI() {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const cached = await _zenrStorageGet(['zenrUpdateLastCheck', 'zenrUpdateLatestVersion']);
+  const isNewer = cached.zenrUpdateLatestVersion
+    ? _zenrCompareVersions(cached.zenrUpdateLatestVersion, currentVersion) > 0
+    : false;
+  _zenrRenderUpdateUI({
+    checking: false,
+    isNewer,
+    latestVersion: cached.zenrUpdateLatestVersion,
+    lastCheck: cached.zenrUpdateLastCheck
+  });
+}
+
+// Silent, throttled background check — runs once per ZENR_UPDATE_AUTO_CHECK_INTERVAL_MS.
+async function zenrMaybeAutoCheckForUpdates() {
+  const { zenrUpdateLastCheck } = await _zenrStorageGet(['zenrUpdateLastCheck']);
+  const elapsed = Date.now() - (zenrUpdateLastCheck || 0);
+  if (elapsed >= ZENR_UPDATE_AUTO_CHECK_INTERVAL_MS) {
+    zenrCheckForUpdates(false);
+  } else {
+    // Still paint the gear-icon dot / cached state from last known check.
+    zenrInitUpdateUI();
+  }
+}
+
+function zenrInitUpdateEvents() {
+  const checkBtn = document.getElementById('upd-check-btn');
+  if (checkBtn) checkBtn.addEventListener('click', () => zenrCheckForUpdates(true));
+
+  const downloadBtn = document.getElementById('upd-download-btn');
+  if (downloadBtn) downloadBtn.addEventListener('click', (e) => { e.preventDefault(); _zenrOpenDownload(); });
+
+  const bannerDownloadBtn = document.getElementById('update-banner-download');
+  if (bannerDownloadBtn) bannerDownloadBtn.addEventListener('click', () => {
+    _zenrOpenDownload();
+    _zenrHideUpdateBanner();
+  });
+
+  const bannerDismissBtn = document.getElementById('update-banner-dismiss');
+  if (bannerDismissBtn) bannerDismissBtn.addEventListener('click', async () => {
+    const { zenrUpdateLatestVersion } = await _zenrStorageGet(['zenrUpdateLatestVersion']);
+    if (zenrUpdateLatestVersion) await _zenrStorageSet({ zenrUpdateDismissedVersion: zenrUpdateLatestVersion });
+    _zenrHideUpdateBanner();
+  });
+}
+
 function _maybeShowIntro() {
   const overlay = document.getElementById('intro-overlay');
   if (!overlay) return;
   try {
     chrome.storage.local.get(['zenrIntroSeen'], function(result) {
       if (result.zenrIntroSeen) {
-        // Already watched — hide immediately, zero flicker
-        overlay.classList.add('intro-hidden');
+        // Already watched — stays hidden (class set in HTML, never remove it)
       } else {
+        // First install — make overlay visible then run the intro
         chrome.storage.local.set({ zenrIntroSeen: true });
+        overlay.classList.remove('intro-hidden');
         _runIntro();
       }
     });
   } catch(e) {
-    overlay.classList.add('intro-hidden');
+    // Fallback: keep hidden
   }
 }
 
 async function init() {
-  bindStaticEvents();
-  initClockDrag();
-  initSearchWidget();
-  initCalculatorWidget();
-  await loadState();
-  autoSyncBrowserBookmarks();
-  await loadBackground();
-  render();
-  initLayoutInfoPortal();
-  _maybeShowIntro();
-  const mc = document.getElementById('main-content');
-  if (mc) mc.addEventListener('scroll', _onMainScroll, { passive: true });
+  try {
+    // Stamp version from manifest — no manual edits needed
+    try {
+      const v = 'v' + chrome.runtime.getManifest().version;
+      const el = document.getElementById('sett-ext-version');
+      if (el) el.textContent = v;
+    } catch (_) {}
+    bindStaticEvents();
+    initClockDrag();
+    initSearchWidget();
+    initCountdownDrag();
+    initCalculatorWidget();
+    await loadState();
+    await loadGistConfig();
+    autoSyncBrowserBookmarks();
+    await loadBackground();
+    render();
+    if (typeof initMoodyEffects === 'function') initMoodyEffects();
+    if (typeof initMoodyPill    === 'function') initMoodyPill();
+    initLayoutInfoPortal();
+    const mc = document.getElementById('main-content');
+    if (mc) mc.addEventListener('scroll', _onMainScroll, { passive: true });
+    // Auto-backup check (silent, runs in background after render)
+    gistCheckAutoBackup();
+    // Software update check (silent, throttled — runs in background after render)
+    zenrInitUpdateEvents();
+    zenrMaybeAutoCheckForUpdates();
+  } finally {
+    // Always reveal the page — removes the init-time opacity:0 that
+    // prevents the flash of black/unstyled content on every new tab.
+    document.body.classList.remove('zenr-init');
+    _maybeShowIntro();
+  }
 }
 init();
+
+// ══════════════════════════════════════════════════════════════════
+// MOODY EFFECTS — Ambient sound player powered by Freesound.org
+// ══════════════════════════════════════════════════════════════════
+
+var MOODY_CATEGORIES = [
+  { id: 'ambient',     label: 'Ambient',     emoji: '🌌', q: 'ambient drone',        cls: 'moody-cat-ambient'     },
+  { id: 'nature',      label: 'Nature',      emoji: '🌿', q: 'forest birds nature',  cls: 'moody-cat-nature'      },
+  { id: 'meditation',  label: 'Meditation',  emoji: '🧘', q: 'meditation singing bowl', cls: 'moody-cat-meditation' },
+  { id: 'mindfulness', label: 'Mindfulness', emoji: '🌸', q: 'mindfulness calm',     cls: 'moody-cat-mindfulness' },
+  { id: 'relax',       label: 'Relax',       emoji: '🛋️', q: 'relax soft music',     cls: 'moody-cat-relax'       },
+  { id: 'rain',        label: 'Rain',        emoji: '🌧️', q: 'rain ambience',        cls: 'moody-cat-rain'        },
+  { id: 'whitenoise',  label: 'White Noise', emoji: '🤍', q: 'white noise',          cls: 'moody-cat-whitenoise'  },
+  { id: 'brownnoise',  label: 'Brown Noise', emoji: '☕', q: 'brown noise',          cls: 'moody-cat-brownnoise'  },
+  { id: 'asmr',        label: 'ASMR',        emoji: '✨', q: 'asmr soft sounds',     cls: 'moody-cat-asmr'        },
+];
+
+var moody = {
+  audio: null,
+  tracks: [],
+  trackIndex: -1,
+  playing: false,
+  catId: null,
+  cache: {},
+  progressTimer: null,
+  repeat: false,
+};
+
+// ── Key storage helpers (uses chrome.storage via state) ───────────
+function moodyGetKey() {
+  return (state.settings.freesoundApiKey || '').trim();
+}
+function moodySetKey(k) {
+  state.settings.freesoundApiKey = k.trim();
+  saveState();
+}
+function moodyDeleteKey() {
+  state.settings.freesoundApiKey = '';
+  saveState();
+  moody.cache = {};
+}
+
+// ── Helpers ───────────────────────────────────────────
+function moodyFmtTime(sec) {
+  if (!sec || isNaN(sec)) return '0:00';
+  var m = Math.floor(sec / 60);
+  var s = Math.floor(sec % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// ── Gate / key UI ─────────────────────────────────────
+function moodyRefreshGate() {
+  var key       = moodyGetKey();
+  var hasKey    = !!key;
+  var gateEl    = document.getElementById('moody-key-gate');
+  var contentEl = document.getElementById('moody-content');
+  var entryEl   = document.getElementById('moody-key-entry');
+  var savedEl   = document.getElementById('moody-key-saved');
+  var maskedEl  = document.getElementById('moody-key-masked');
+
+  if (!gateEl) return;
+
+  // Gate always visible — shows either input or masked key
+  if (entryEl) entryEl.classList.toggle('hidden', hasKey);
+  if (savedEl) savedEl.classList.toggle('hidden', !hasKey);
+  if (maskedEl && hasKey) {
+    maskedEl.textContent = key.slice(0, 6) + '••••••••' + key.slice(-3);
+  }
+  if (contentEl) {
+    contentEl.style.display = hasKey ? 'block' : 'none';
+  }
+}
+
+// ── Init ──────────────────────────────────────────────
+function initMoodyEffects() {
+  var catsEl = document.getElementById('moody-cats');
+  if (!catsEl) return;
+
+  // Build category cards
+  catsEl.innerHTML = '';
+  MOODY_CATEGORIES.forEach(function(cat) {
+    var card = document.createElement('div');
+    card.className = 'moody-cat-card ' + cat.cls;
+    card.dataset.catId = cat.id;
+    card.innerHTML =
+      '<span class="moody-cat-emoji">' + cat.emoji + '</span>' +
+      '<span class="moody-cat-label">' + cat.label + '</span>';
+    card.addEventListener('click', function() { moodyOpenCategory(cat); });
+    catsEl.appendChild(card);
+  });
+
+  // Key save
+  var saveBtn = document.getElementById('moody-key-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function() {
+      var val = (document.getElementById('moody-key-input').value || '').trim();
+      if (!val) return;
+      moodySetKey(val);
+      document.getElementById('moody-key-input').value = '';
+      moodyRefreshGate();
+    });
+  }
+  // Key input — save on Enter
+  var keyInput = document.getElementById('moody-key-input');
+  if (keyInput) {
+    keyInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var val = keyInput.value.trim();
+        if (!val) return;
+        moodySetKey(val);
+        keyInput.value = '';
+        moodyRefreshGate();
+      }
+    });
+  }
+
+  // Key remove
+  var removeBtn = document.getElementById('moody-key-remove');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', function() {
+      moodyDeleteKey();
+      moody.cache = {};
+      moodyRefreshGate();
+      moodyStop();
+    });
+  }
+
+  // Back button
+  var backBtn = document.getElementById('moody-back-btn');
+  if (backBtn) backBtn.addEventListener('click', moodyShowCats);
+
+  // Player controls
+  var ppBtn = document.getElementById('moody-playpause-btn');
+  if (ppBtn) ppBtn.addEventListener('click', moodyTogglePlayPause);
+  var stopBtn = document.getElementById('moody-stop-btn');
+  if (stopBtn) stopBtn.addEventListener('click', moodyStop);
+  var prevBtn = document.getElementById('moody-prev-btn');
+  if (prevBtn) prevBtn.addEventListener('click', moodyPrev);
+  var nextBtn = document.getElementById('moody-next-btn');
+  if (nextBtn) nextBtn.addEventListener('click', moodyNext);
+
+  // Progress seek
+  var progBar = document.getElementById('moody-progress-bar');
+  if (progBar) {
+    progBar.addEventListener('click', function(e) {
+      if (!moody.audio || !moody.audio.duration) return;
+      var rect  = e.currentTarget.getBoundingClientRect();
+      var ratio = (e.clientX - rect.left) / rect.width;
+      moody.audio.currentTime = ratio * moody.audio.duration;
+      moodyUpdateProgress();
+    });
+  }
+
+  moodyRefreshGate();
+}
+
+// ── Open category ─────────────────────────────────────
+async function moodyOpenCategory(cat) {
+  document.querySelectorAll('.moody-cat-card').forEach(function(c) {
+    c.classList.toggle('active', c.dataset.catId === cat.id);
+  });
+  moody.catId = cat.id;
+
+  var catGrid    = document.getElementById('moody-cats');
+  var tracksPanel = document.getElementById('moody-tracks-panel');
+  catGrid.style.display = 'none';
+  tracksPanel.classList.remove('hidden');
+
+  document.getElementById('moody-tracks-cat-name').textContent = cat.emoji + ' ' + cat.label;
+
+  var listEl  = document.getElementById('moody-track-list');
+  var countEl = document.getElementById('moody-tracks-count');
+
+  // Cache hit
+  if (moody.cache[cat.id]) {
+    moodyRenderTracks(moody.cache[cat.id], cat);
+    return;
+  }
+
+  // Loading state
+  listEl.innerHTML =
+    '<div class="moody-tracks-loading">' +
+      '<span class="moody-loading-dot"></span>' +
+      '<span class="moody-loading-dot"></span>' +
+      '<span class="moody-loading-dot"></span>' +
+      '<span style="font-size:11px;margin-left:6px">Fetching sounds…</span>' +
+    '</div>';
+  countEl.textContent = '';
+
+  try {
+    var key = moodyGetKey();
+    if (!key) throw new Error('No API key — please add your Freesound key above.');
+
+    // Freesound search: duration 120–240 s, HQ, sorted by rating
+    var params = new URLSearchParams({
+      query:    cat.q,
+      filter:   'duration:[120 TO 240] type:wav OR type:mp3 OR type:ogg',
+      fields:   'id,name,duration,previews,username,tags',
+      sort:     'rating_desc',
+      page_size: 20,
+      token:    key,
+    });
+    var url = 'https://freesound.org/apiv2/search/text/?' + params.toString();
+
+    var res = await fetch(url);
+    if (res.status === 401) throw new Error('Invalid API key — check and re-enter.');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+
+    var tracks = (data.results || [])
+      .filter(function(h) { return h.previews && (h.previews['preview-hq-mp3'] || h.previews['preview-lq-mp3']); })
+      .map(function(h) {
+        return {
+          id:       h.id,
+          title:    h.name || ('Track ' + h.id),
+          audioUrl: h.previews['preview-hq-mp3'] || h.previews['preview-lq-mp3'],
+          duration: Math.round(h.duration || 0),
+          user:     h.username || '',
+        };
+      });
+
+    if (!tracks.length) {
+      listEl.innerHTML = '<div class="moody-tracks-empty">No tracks found.<br><small>Try another category.</small></div>';
+      countEl.textContent = '0 tracks';
+      return;
+    }
+
+    moody.cache[cat.id] = tracks;
+    moodyRenderTracks(tracks, cat);
+
+  } catch(err) {
+    listEl.innerHTML = '<div class="moody-tracks-error">⚠️ Could not load sounds.<br><small>' + err.message + '</small></div>';
+    countEl.textContent = '';
+  }
+}
+
+// ── Render track list ─────────────────────────────────
+function moodyRenderTracks(tracks, cat) {
+  moody.tracks = tracks;
+  var listEl  = document.getElementById('moody-track-list');
+  var countEl = document.getElementById('moody-tracks-count');
+  countEl.textContent = tracks.length + ' tracks';
+  listEl.innerHTML = '';
+
+  tracks.forEach(function(t, i) {
+    var item = document.createElement('div');
+    item.className = 'moody-track-item';
+    item.dataset.idx = i;
+    var isPlaying = (moody.trackIndex === i && moody.catId === cat.id && moody.playing);
+    if (isPlaying) item.classList.add('playing');
+
+    var playIcon =
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+    var pauseIcon =
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+
+    item.innerHTML =
+      '<div class="moody-track-play-btn">' + (isPlaying ? pauseIcon : playIcon) + '</div>' +
+      '<div class="moody-track-info">' +
+        '<div class="moody-track-title">' + t.title + '</div>' +
+        '<div class="moody-track-meta">' + (t.user || cat.label) + '</div>' +
+      '</div>' +
+      '<span class="moody-track-dur">' + moodyFmtTime(t.duration) + '</span>';
+
+    item.addEventListener('click', function() { moodyPlayTrack(i); });
+    listEl.appendChild(item);
+  });
+}
+
+// ── Navigation ────────────────────────────────────────
+function moodyShowCats() {
+  var tracksPanel = document.getElementById('moody-tracks-panel');
+  var catGrid     = document.getElementById('moody-cats');
+  tracksPanel.classList.add('hidden');
+  catGrid.style.display = '';
+  document.querySelectorAll('.moody-cat-card').forEach(function(c) {
+    c.classList.remove('active');
+  });
+}
+
+// ── Playback ──────────────────────────────────────────
+function moodyPlayTrack(idx) {
+  if (idx < 0 || idx >= moody.tracks.length) return;
+  var track = moody.tracks[idx];
+  moody.trackIndex = idx;
+
+  if (moody.audio) {
+    moody.audio.pause();
+    moody.audio.src = '';
+    clearInterval(moody.progressTimer);
+  }
+
+  moody.audio = new Audio();
+  moody.audio.crossOrigin = 'anonymous';
+  moody.audio.preload = 'auto';
+  moody.audio.src = track.audioUrl;
+  moody.audio.volume = 0.8;
+
+  moody.audio.addEventListener('canplay', function() {
+    moody.audio.play().catch(function() {});
+    moody.playing = true;
+    moodyUpdatePlayerUI();
+    moodyStartProgressTimer();
+  });
+  moody.audio.addEventListener('ended', function() {
+    if (moody.repeat) {
+      moody.audio.currentTime = 0;
+      moody.audio.play().catch(function() {});
+      moodyStartProgressTimer();
+    } else {
+      moodyNext();
+    }
+  });
+  moody.audio.addEventListener('error', function(e) {
+    moody.playing = false;
+    moodyUpdatePlayerUI();
+  });
+
+  // Show / update player
+  var playerEl = document.getElementById('moody-player');
+  playerEl.classList.remove('hidden');
+  document.getElementById('moody-player-title').textContent = track.title;
+  document.getElementById('moody-player-time').textContent  = '0:00 / ' + moodyFmtTime(track.duration);
+  document.getElementById('moody-progress-fill').style.width = '0%';
+
+  moodyHighlightTrack(idx);
+}
+
+function moodyTogglePlayPause() {
+  if (!moody.audio) return;
+  if (moody.playing) {
+    moody.audio.pause();
+    moody.playing = false;
+    clearInterval(moody.progressTimer);
+  } else {
+    moody.audio.play().catch(function() {});
+    moody.playing = true;
+    moodyStartProgressTimer();
+  }
+  moodyUpdatePlayerUI();
+}
+
+function moodyStop() {
+  if (moody.audio) {
+    moody.audio.pause();
+    moody.audio.src = '';
+  }
+  clearInterval(moody.progressTimer);
+  moody.playing    = false;
+  moody.trackIndex = -1;
+  var playerEl = document.getElementById('moody-player');
+  if (playerEl) { playerEl.classList.add('hidden'); playerEl.classList.remove('is-playing'); }
+  document.querySelectorAll('.moody-track-item').forEach(function(el) { el.classList.remove('playing'); });
+}
+
+function moodyPrev() {
+  if (!moody.tracks.length) return;
+  var idx = moody.trackIndex > 0 ? moody.trackIndex - 1 : moody.tracks.length - 1;
+  moodyPlayTrack(idx);
+}
+
+function moodyNext() {
+  if (!moody.tracks.length) return;
+  var idx = (moody.trackIndex + 1) % moody.tracks.length;
+  moodyPlayTrack(idx);
+}
+
+// ── UI helpers ────────────────────────────────────────
+function moodyUpdatePlayerUI() {
+  var playerEl  = document.getElementById('moody-player');
+  var playIcon  = document.querySelector('.moody-play-icon');
+  var pauseIcon = document.querySelector('.moody-pause-icon');
+  if (playerEl)  playerEl.classList.toggle('is-playing', moody.playing);
+  if (playIcon)  playIcon.classList.toggle('hidden', moody.playing);
+  if (pauseIcon) pauseIcon.classList.toggle('hidden', !moody.playing);
+  moodyHighlightTrack(moody.trackIndex);
+  // Keep pill in sync with main player at all times
+  if (typeof moodyPillUpdate === 'function') moodyPillUpdate();
+}
+
+function moodyHighlightTrack(idx) {
+  var playIconSvg  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+  var pauseIconSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+  document.querySelectorAll('.moody-track-item').forEach(function(el, i) {
+    var isActive = (i === idx);
+    el.classList.toggle('playing', isActive);
+    var btn = el.querySelector('.moody-track-play-btn');
+    if (btn) btn.innerHTML = (isActive && moody.playing) ? pauseIconSvg : playIconSvg;
+  });
+}
+
+function moodyStartProgressTimer() {
+  clearInterval(moody.progressTimer);
+  moody.progressTimer = setInterval(moodyUpdateProgress, 1000);
+}
+
+function moodyUpdateProgress() {
+  var audio = moody.audio;
+  if (!audio || !audio.duration) return;
+  var pct    = (audio.currentTime / audio.duration) * 100;
+  var fillEl = document.getElementById('moody-progress-fill');
+  var timeEl = document.getElementById('moody-player-time');
+  if (fillEl) fillEl.style.width = pct + '%';
+  if (timeEl) timeEl.textContent = moodyFmtTime(audio.currentTime) + ' / ' + moodyFmtTime(audio.duration);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MOODY FLOATING PILL PLAYER
+// ══════════════════════════════════════════════════════════════════
+
+function moodyPillGetEnabled() {
+  return !!(state.settings.moodyPillEnabled);
+}
+
+function moodyPillSetEnabled(v) {
+  state.settings.moodyPillEnabled = !!v;
+  saveState();
+}
+
+function moodyPillSync() {
+  var pill     = document.getElementById('moody-pill');
+  var toggle   = document.getElementById('toggle-moody-pill');
+  var toggleRow = document.getElementById('moody-pill-toggle-row');
+  if (!pill) return;
+
+  var hasKey  = !!moodyGetKey();
+  var enabled = moodyPillGetEnabled();
+
+  // Show toggle row only when key is saved
+  if (toggleRow) toggleRow.classList.toggle('hidden', !hasKey);
+  if (toggle && toggle.checked !== enabled) toggle.checked = enabled;
+
+  // Show pill only when enabled AND a track is loaded
+  var hasTrack = (moody.trackIndex >= 0 && moody.tracks.length > 0);
+  pill.classList.toggle('hidden', !(enabled && hasTrack));
+}
+
+function moodyPillUpdate() {
+  var pill   = document.getElementById('moody-pill');
+  if (!pill) return;
+
+  var enabled  = moodyPillGetEnabled();
+  var hasTrack = (moody.trackIndex >= 0 && moody.tracks.length > 0);
+  pill.classList.toggle('hidden', !(enabled && hasTrack));
+
+  if (!hasTrack) return;
+
+  var track = moody.tracks[moody.trackIndex];
+
+  // Title
+  var titleEl = document.getElementById('moody-pill-title');
+  if (titleEl) titleEl.textContent = track ? track.title : '—';
+
+  // Play/pause icons
+  var playIcon  = pill.querySelector('.moody-pill-play');
+  var pauseIcon = pill.querySelector('.moody-pill-pause');
+  if (playIcon)  playIcon.classList.toggle('hidden', moody.playing);
+  if (pauseIcon) pauseIcon.classList.toggle('hidden', !moody.playing);
+
+  // Waveform glow
+  pill.classList.toggle('is-playing', moody.playing);
+}
+
+function moodyPillUpdateProgress() {
+  var audio  = moody.audio;
+  var fillEl = document.getElementById('moody-pill-pfill');
+  if (!fillEl || !audio || !audio.duration) return;
+  fillEl.style.width = ((audio.currentTime / audio.duration) * 100) + '%';
+}
+
+function initMoodyPill() {
+  var pill = document.getElementById('moody-pill');
+  if (!pill) return;
+
+  // Toggle in settings
+  var toggle = document.getElementById('toggle-moody-pill');
+  if (toggle) {
+    toggle.checked = moodyPillGetEnabled();
+    toggle.addEventListener('change', function() {
+      moodyPillSetEnabled(toggle.checked);
+      moodyPillSync();
+    });
+  }
+
+  // Pill controls
+  document.getElementById('moody-pill-pp').addEventListener('click', function(e) {
+    e.stopPropagation();
+    moodyTogglePlayPause();
+    moodyPillUpdate();
+  });
+  document.getElementById('moody-pill-prev').addEventListener('click', function(e) {
+    e.stopPropagation();
+    moodyPrev();
+  });
+  document.getElementById('moody-pill-next').addEventListener('click', function(e) {
+    e.stopPropagation();
+    moodyNext();
+  });
+
+  // Repeat toggle
+  var repeatBtn = document.getElementById('moody-pill-repeat');
+  if (repeatBtn) {
+    repeatBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      moody.repeat = !moody.repeat;
+      repeatBtn.classList.toggle('active', moody.repeat);
+      repeatBtn.title = moody.repeat ? 'Repeat: On' : 'Repeat: Off';
+    });
+  }
+
+  // ── Draggable — entire pill body acts as grip ────────
+  var dragging = false, startX, startY, origLeft, origTop, didDrag;
+
+  // Restore saved position
+  var savedPos = state.settings.moodyPillPos;
+  if (savedPos) {
+    pill.style.left  = savedPos.x + 'px';
+    pill.style.top   = savedPos.y + 'px';
+    pill.style.right = 'auto';
+  }
+
+  // Block drag-start when the user presses a button
+  pill.querySelectorAll('button').forEach(function(btn) {
+    btn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    btn.addEventListener('touchstart', function(e) { e.stopPropagation(); }, { passive: true });
+  });
+
+  pill.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    didDrag  = false;
+    pill.classList.add('dragging');
+    var rect = pill.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    origLeft = rect.left; origTop = rect.top;
+    pill.style.left  = origLeft + 'px';
+    pill.style.top   = origTop  + 'px';
+    pill.style.right = 'auto';
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+    var newLeft = Math.max(0, Math.min(window.innerWidth  - pill.offsetWidth,  origLeft + dx));
+    var newTop  = Math.max(0, Math.min(window.innerHeight - pill.offsetHeight, origTop  + dy));
+    pill.style.left = newLeft + 'px';
+    pill.style.top  = newTop  + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging = false;
+    pill.classList.remove('dragging');
+    if (didDrag) {
+      state.settings.moodyPillPos = {
+        x: parseInt(pill.style.left, 10),
+        y: parseInt(pill.style.top,  10),
+      };
+      saveState();
+    }
+  });
+
+  // Touch drag support
+  pill.addEventListener('touchstart', function(e) {
+    if (e.target.closest('button')) return;
+    var t = e.touches[0];
+    dragging = true;
+    didDrag  = false;
+    pill.classList.add('dragging');
+    var rect = pill.getBoundingClientRect();
+    startX = t.clientX; startY = t.clientY;
+    origLeft = rect.left; origTop = rect.top;
+    pill.style.left  = origLeft + 'px';
+    pill.style.top   = origTop  + 'px';
+    pill.style.right = 'auto';
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!dragging) return;
+    var t = e.touches[0];
+    var dx = t.clientX - startX;
+    var dy = t.clientY - startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+    var newLeft = Math.max(0, Math.min(window.innerWidth  - pill.offsetWidth,  origLeft + dx));
+    var newTop  = Math.max(0, Math.min(window.innerHeight - pill.offsetHeight, origTop  + dy));
+    pill.style.left = newLeft + 'px';
+    pill.style.top  = newTop  + 'px';
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() {
+    if (!dragging) return;
+    dragging = false;
+    pill.classList.remove('dragging');
+    if (didDrag) {
+      state.settings.moodyPillPos = {
+        x: parseInt(pill.style.left, 10),
+        y: parseInt(pill.style.top,  10),
+      };
+      saveState();
+    }
+  });
+
+  moodyPillSync();
+}
+
+// ── Patch moody playback functions to keep pill in sync ──────────
+var _moodyPlayTrack_orig = moodyPlayTrack;
+moodyPlayTrack = function(idx) {
+  _moodyPlayTrack_orig(idx);
+  // Defer one tick so moody.playing is set
+  setTimeout(function() { moodyPillUpdate(); }, 60);
+};
+
+var _moodyTogglePlayPause_orig = moodyTogglePlayPause;
+moodyTogglePlayPause = function() {
+  _moodyTogglePlayPause_orig();
+  moodyPillUpdate();
+};
+
+var _moodyStop_orig = moodyStop;
+moodyStop = function() {
+  _moodyStop_orig();
+  moodyPillUpdate();
+};
+
+// Also hook into the progress timer to update pill progress strip
+var _moodyStartProgressTimer_orig = moodyStartProgressTimer;
+moodyStartProgressTimer = function() {
+  _moodyStartProgressTimer_orig();
+  // extra tick for pill
+  moody._pillProgressTimer = setInterval(moodyPillUpdateProgress, 1000);
+};
+
+var _moodyStop2 = moodyStop;
+moodyStop = function() {
+  _moodyStop2();
+  clearInterval(moody._pillProgressTimer);
+  var fillEl = document.getElementById('moody-pill-pfill');
+  if (fillEl) fillEl.style.width = '0%';
+};
+
+// Moody bootstrap is handled inside init() after loadState() resolves.
+

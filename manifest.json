@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "ZenR-NewTab",
-  "version": "1.0.0",
+  "version": "2.2",
   "description": "A liquid-glass new tab bookmark manager with pages, boards, drag & drop, and custom wallpapers.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuAHw402B8GVhyyV2xpXQTIxFBsFU6C9LzOzogiNu2Bn3ZfgkIeAKnAv2WA9SNCxf7BC5eGFq+tNVaurr7wycevwEUNjQr5FMCp3cb//vbfbsayJpcw0xQccghOwfD+9nBErgefW2ZI/pe5et2Jlzyzw5ohPyGPUPWKBf0fB+nKdzE6nKf/5D5OGjZfdsK8iqyrUbpJpMtRJPzkwFxmqPOoMJXY2KXauiQGX8HAP5LqFfF8PNf5H8Nb5OB+YD/slbg0AOWEAb79WBlyJ5go5bmqWntDvxMxs93GycDlkgXKH2nJNoIg//WjTAv52xFNaqY1WA/FauilFd6WFizHcmrwIDAQAB",
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
@@ -19,7 +20,10 @@
     "https://search.brave.com/*",
     "https://www.startpage.com/*",
     "https://catbox.moe/*",
-    "https://formbold.com/*"
+    "https://formbold.com/*",
+    "https://api.github.com/*",
+    "https://gist.githubusercontent.com/*",
+    "https://cdn.jsdelivr.net/*"
   ],
   "action": {
     "default_title": "ZenR Bookmarks",

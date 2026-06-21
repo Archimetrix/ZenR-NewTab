@@ -10,7 +10,7 @@
   <link rel="icon" type="image/png" href="icon.png">
   <link rel="stylesheet" href="newtab.css">
 </head>
-<body>
+<body class="zenr-init">
 <!-- Background Layer -->
   <div id="bg-layer">
     <video id="bg-video" autoplay muted loop playsinline></video>
@@ -45,6 +45,7 @@
         </button>
         <button class="tb-btn icon-btn" id="btn-settings" title="Menu">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <span class="tb-update-dot hidden" id="tb-update-dot" title="Update available"></span>
         </button>
       </div>
     </header>
@@ -381,6 +382,17 @@
             <small>MP4, WebM, OGV — select multiple</small>
           </div>
           <input type="file" id="bg-vid-input" class="hidden" accept="video/*" multiple>
+          <div id="vid-upload-loading">
+            <div class="vid-loading-top">
+              <div class="vid-loading-spinner"></div>
+              <span class="vid-loading-label">Saving videos…</span>
+              <span class="vid-loading-count" id="vid-loading-count">0 / 0</span>
+            </div>
+            <div class="vid-loading-bar-track">
+              <div class="vid-loading-bar-fill" id="vid-loading-bar"></div>
+            </div>
+            <div class="vid-loading-filenames" id="vid-loading-filename"></div>
+          </div>
           <div id="media-list-videos" class="media-list"></div>
           <div class="auto-change-row" id="auto-change-video-row">
             <label class="toggle-label">
@@ -429,6 +441,32 @@
     </div>
 
     <!-- CONFIRM MODAL -->
+    <!-- GitHub Gist Setup Guide Modal -->
+    <div class="modal-box glass-card hidden" id="modal-gist-setup" style="max-width:480px">
+      <div class="modal-header">
+        <h3>🔒 GitHub Gist Backup — Setup Guide</h3>
+        <button class="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div class="gist-guide-step">
+          <span class="gist-guide-num">①</span>
+          <p><strong>Create a Token:</strong> GitHub → Profile → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic). Tick only the <code>gist</code> scope. <span style="color:#ffb347">⚠️</span> Set expiration to <strong>No expiration</strong>.</p>
+        </div>
+        <div class="gist-guide-step">
+          <span class="gist-guide-num">②</span>
+          <p><strong>Copy &amp; save your token</strong> somewhere safe — GitHub shows it only once. You will need it to restore your ZenR data in the future.</p>
+        </div>
+        <div class="gist-guide-step">
+          <span class="gist-guide-num">③</span>
+          <p><strong>Paste the token into ZenR</strong> and hit Send Backup. A private Gist is created automatically. To restore on a new device, just paste your token and hit Get &amp; Restore — the extension finds your backup on its own.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" id="gist-setup-cancel-btn">Cancel</button>
+        <button class="btn-accent" id="gist-setup-ok-btn">OK — Enable Gist Backup</button>
+      </div>
+    </div>
+
     <div class="modal-box glass-card hidden" id="modal-confirm">
       <div class="modal-header">
         <h3 id="confirm-title">Confirm</h3>
@@ -488,7 +526,7 @@
       </div>
 
       <!-- Layout Section -->
-      <div class="sett-section">
+      <div class="sett-section layout-sett-section">
         <div class="sett-section-title" style="display:flex;align-items:center;gap:6px;">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           Layout
@@ -526,8 +564,10 @@
             </div>
           </div>
         </div>
-        <!-- Minimal Groups sub-settings (links per row + icon style) -->
-        <div class="mg-links-row-setting mg-subsettings-block">
+      </div>
+
+      <!-- Minimal Groups sub-settings (standalone card, shown only in minimal-groups-mode) -->
+      <div class="mg-links-row-setting mg-subsettings-block">
           <!-- Links per row -->
           <div class="mg-subsett-row">
             <div class="mg-subsett-label">
@@ -535,7 +575,7 @@
               Links per row
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <input type="range" id="mg-links-per-row" min="3" max="16" step="1" style="width:80px;">
+              <input type="range" id="mg-links-per-row" min="3" max="16" step="1" style="width:72px;">
               <span id="mg-links-per-row-val" class="mg-subsett-val"></span>
             </div>
           </div>
@@ -560,7 +600,6 @@
             </div>
           </div>
         </div>
-      </div>
 
       <!-- Appearance Section -->
       <div class="sett-section">
@@ -761,6 +800,103 @@
         </div>
       </div>
 
+      <!-- ══════════ MOODY EFFECTS SECTION ══════════ -->
+      <div class="sett-section" id="moody-section">
+        <div class="sett-section-title moody-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          Moody Effects
+          <span class="moody-badge">✦ New</span>
+        </div>
+        <div class="moody-desc">Stream ambient &amp; mindfulness sounds — 2–4 min tracks, royalty-free via Freesound.</div>
+
+        <!-- Freesound API key gate -->
+        <div class="moody-key-gate" id="moody-key-gate">
+          <div class="moody-key-gate-inner">
+            <div class="moody-key-gate-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>Freesound API Key</span>
+            </div>
+            <div class="moody-key-entry" id="moody-key-entry">
+              <input type="password" id="moody-key-input" class="pxb-input moody-key-input" placeholder="Paste your Freesound API key…" autocomplete="off" spellcheck="false">
+              <button class="pxb-key-save-btn" id="moody-key-save">Save</button>
+            </div>
+            <div class="moody-key-saved hidden" id="moody-key-saved">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span class="moody-key-masked" id="moody-key-masked"></span>
+              <button class="pxb-key-remove-btn" id="moody-key-remove">Remove</button>
+            </div>
+            <a class="pxb-key-link" href="https://freesound.org/apiv2/apply/" target="_blank">Get your free Freesound key →</a>
+          </div>
+        </div>
+
+        <!-- Main content — shown only when API key exists -->
+        <div class="moody-content" id="moody-content">
+
+          <!-- Category grid -->
+          <div class="moody-cats" id="moody-cats"></div>
+
+          <!-- Track list panel -->
+          <div class="moody-tracks-panel hidden" id="moody-tracks-panel">
+            <div class="moody-tracks-header">
+              <button class="moody-back-btn" id="moody-back-btn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                Back
+              </button>
+              <span class="moody-tracks-cat-name" id="moody-tracks-cat-name"></span>
+              <span class="moody-tracks-count" id="moody-tracks-count"></span>
+            </div>
+            <div class="moody-track-list" id="moody-track-list"></div>
+          </div>
+
+          <!-- Mini Player (always visible when a track is loaded) -->
+          <div class="moody-player hidden" id="moody-player">
+            <div class="moody-player-waveform" id="moody-player-waveform">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="moody-player-info">
+              <span class="moody-player-title" id="moody-player-title">—</span>
+              <span class="moody-player-time" id="moody-player-time">0:00 / 0:00</span>
+            </div>
+            <div class="moody-player-controls">
+              <button class="moody-ctrl-btn" id="moody-prev-btn" title="Previous">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+              <button class="moody-ctrl-btn moody-playpause" id="moody-playpause-btn" title="Play/Pause">
+                <svg class="moody-play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <svg class="moody-pause-icon hidden" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              </button>
+              <button class="moody-ctrl-btn" id="moody-next-btn" title="Next">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+              <button class="moody-ctrl-btn moody-stop-btn" id="moody-stop-btn" title="Stop">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+              </button>
+            </div>
+            <div class="moody-progress-wrap">
+              <div class="moody-progress-bar" id="moody-progress-bar">
+                <div class="moody-progress-fill" id="moody-progress-fill"></div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /moody-content -->
+
+        <!-- Floating pill toggle (always visible when key is saved) -->
+        <div class="sett-row moody-pill-toggle-row hidden" id="moody-pill-toggle-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="9" width="20" height="6" rx="3"/><circle cx="7" cy="12" r="2" fill="currentColor"/></svg>
+            <div>
+              <span>Floating Mini Player</span>
+              <small class="sett-row-sub">Draggable pill on the new-tab page</small>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-moody-pill">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div><!-- /moody-section -->
+
       <!-- Widgets Section -->
       <div class="sett-section">
         <div class="sett-section-title">
@@ -868,6 +1004,37 @@
             </label>
           </div>
         </div>
+
+        <!-- Countdown Widget toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><line x1="2" y1="2" x2="5" y2="5"/></svg>
+            <span>Countdown</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-countdown">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <!-- Countdown sub-settings -->
+        <div id="countdown-sub-settings" style="display:none" class="widget-sub-panel widget-sub-panel-countdown">
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>Event Name</span>
+            </div>
+            <input type="text" id="cd-name-input" class="cd-event-input" placeholder="e.g. My Birthday" maxlength="32">
+          </div>
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span>Target Date &amp; Time</span>
+            </div>
+            <input type="datetime-local" id="cd-datetime-input" class="cd-datetime-input">
+          </div>
+        </div>
+
+
 
         <!-- Search Bar Widget toggle -->
         <div class="sett-row">
@@ -978,6 +1145,106 @@
         </div>
       </div>
 
+      <!-- GitHub Gist Backup Section -->
+      <div class="sett-section" id="gist-section">
+        <div class="sett-section-title" style="display:flex;align-items:center;gap:6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          GitHub Gist Backup
+          <span class="layout-info-tip" tabindex="0" aria-label="GitHub Gist backup info" data-tooltip="🔒 GitHub Gist Backup — Setup Guide&#10;&#10;① Create a Token: GitHub → Profile → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic). Tick only the gist scope. ⚠️ Set expiration to No expiration.&#10;&#10;② Copy &amp; save your token somewhere safe — GitHub shows it only once. You will need it to restore your ZenR data in the future.&#10;&#10;③ Paste the token into ZenR and hit Send Backup. A private Gist is created automatically. To restore on a new device, just paste your token and hit Get &amp; Restore — the extension finds your backup on its own.">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </span>
+        </div>
+
+        <!-- Enable toggle -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <div>
+              <span>Enable Gist Backup</span>
+              <small class="sett-row-sub">Sync your data to GitHub Gist (optional)</small>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-gist-enabled">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Gist sub-settings (shown when enabled) -->
+        <div id="gist-sub-settings" class="gist-sub-settings hidden">
+
+          <!-- Token input -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <div>
+                <span>Personal Access Token</span>
+                <small class="sett-row-sub">GitHub token with <code style="font-size:10px;opacity:.7">gist</code> scope — stored locally only</small>
+              </div>
+            </div>
+            <div class="sett-row-ctrl gist-token-ctrl">
+              <input type="password" id="gist-token-input" class="glass-input gist-text-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+              <button class="gist-eye-btn" id="gist-token-eye" title="Show/hide token">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="gist-eye-icon"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Gist ID stored internally — no UI needed, auto-discovered -->
+          <input type="hidden" id="gist-id-input" />
+
+          <!-- Send / Get buttons row -->
+          <div class="sett-row sett-row-indented gist-action-row">
+            <div class="gist-action-btns">
+              <button class="gist-btn gist-send-btn" id="gist-send-btn" title="Backup data to GitHub Gist">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                Send Backup
+              </button>
+              <button class="gist-btn gist-get-btn" id="gist-get-btn" title="Restore data from GitHub Gist">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Get &amp; Restore
+              </button>
+            </div>
+            <div class="gist-status-badge hidden" id="gist-status-badge"></div>
+          </div>
+
+          <!-- Last backup info -->
+          <div class="sett-row sett-row-indented">
+            <div class="sett-row-info">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <div>
+                <span>Last Gist Backup</span>
+                <small class="sett-row-sub" id="gist-last-backup-time">Never backed up to Gist</small>
+              </div>
+            </div>
+            <div class="gist-open-link-wrap">
+              <a class="gist-open-link hidden" id="gist-open-link" href="#" target="_blank" title="Open Gist on GitHub">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                View
+              </a>
+            </div>
+          </div>
+
+          <!-- Auto-backup interval -->
+          <div class="sett-row sett-row-indented gist-interval-row">
+            <div class="gist-interval-header">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;color:var(--text-muted)"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+              <div>
+                <span style="font-size:13px">Auto-backup Interval</span>
+                <small class="sett-row-sub">Runs silently on new-tab open once the interval has elapsed</small>
+              </div>
+            </div>
+            <div class="gist-interval-chips" id="gist-interval-chips">
+              <button class="gist-chip active" data-interval="off">Off</button>
+              <button class="gist-chip" data-interval="24h">Every 24h</button>
+              <button class="gist-chip" data-interval="7d">Every 7 days</button>
+              <button class="gist-chip" data-interval="1m">Every month</button>
+            </div>
+          </div>
+
+        </div><!-- /gist-sub-settings -->
+      </div><!-- /gist-section -->
+
       <!-- Danger Section -->
       <div class="sett-section sett-section-last">
         <button class="sett-reset-btn" id="btn-reset-all">
@@ -1006,6 +1273,57 @@
         </div>
       </div>
 
+      <!-- Software Update Section -->
+      <div class="sett-section" id="update-section">
+        <div class="sett-section-title" style="display:flex;align-items:center;gap:6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Software Update
+        </div>
+
+        <!-- Installed version -->
+        <div class="sett-row">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            <div>
+              <span>Installed Version</span>
+              <small class="sett-row-sub" id="upd-current-version">—</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Check / Download buttons -->
+        <div class="sett-row sett-row-indented gist-action-row">
+          <div class="gist-action-btns">
+            <button class="gist-btn gist-send-btn" id="upd-check-btn" title="Check GitHub for a newer release">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Check for Updates
+            </button>
+            <a class="gist-btn gist-get-btn hidden" id="upd-download-btn" href="https://github.com/Archimetrix/ZenR-NewTab/archive/refs/heads/main.zip" target="_blank" rel="noopener" title="Download the latest main branch as a ZIP">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Update
+            </a>
+          </div>
+          <div class="gist-status-badge hidden" id="upd-status-badge"></div>
+        </div>
+
+        <!-- Last checked -->
+        <div class="sett-row sett-row-indented">
+          <div class="sett-row-info">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div>
+              <span>Last Checked</span>
+              <small class="sett-row-sub" id="upd-last-check">Never checked</small>
+            </div>
+          </div>
+          <div class="gist-open-link-wrap">
+            <a class="gist-open-link" id="upd-releases-link" href="https://github.com/Archimetrix/ZenR-NewTab/commits/main" target="_blank" rel="noopener" title="View recent commits on GitHub">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Commits
+            </a>
+          </div>
+        </div>
+      </div>
+
       <!-- Footer / About Section -->
       <div class="sett-section sett-footer-section">
         <button id="open-report-panel" class="sett-report-btn">
@@ -1014,15 +1332,20 @@
         </button>
         <p class="sett-made-with">Made with <span class="sett-heart">&#10084;</span> by Archimetrix</p>
         <div class="sett-footer-btns">
-          <a href="https://github.com/Archimetrix/ZenR-NewTab" target="_blank" class="sett-gh-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-            Star on GitHub
-          </a>
           <a href="https://buymeacoffee.com/archimetrix" target="_blank" class="sett-bmc-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
             Buy Me a Coffee
           </a>
         </div>
+      </div>
+
+      <!-- Privacy button sits outside the footer box -->
+      <div class="sett-privacy-row">
+        <button id="open-privacy-panel" class="sett-privacy-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Privacy &amp; Data Handling
+        </button>
+        <p class="sett-ext-version-label" id="sett-ext-version"></p>
       </div>
 
     </div>
@@ -1066,18 +1389,266 @@
     </div>
   </div>
 
+  <!-- ── PRIVACY PANEL ────────────────────────────────────────────────── -->
+  <div id="privacy-panel" aria-hidden="true">
+    <div class="prv-inner glass-card">
+      <div class="prv-header">
+        <div class="prv-header-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Privacy &amp; Data Handling
+        </div>
+        <button class="prv-close-btn" id="privacy-close-btn" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <p class="prv-tagline">ZenR-NewTab is a <strong>100% local-first</strong> extension. No accounts. No tracking. No servers. Everything stays on your device unless you explicitly opt in to an optional feature.</p>
+
+      <!-- Local Storage -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Your Data &amp; Local Storage
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>All your bookmarks, board layouts, notes, widget positions, and appearance settings are saved exclusively using the browser's local storage API — stored only on your own device and never transmitted anywhere.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Background images and videos you upload are stored in your browser's local database (IndexedDB). They are entirely local and never leave your machine under any circumstance.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>No data is ever sent to any ZenR server. There is no backend, no database, and no analytics pipeline tied to your usage.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Uninstalling the extension permanently deletes all locally stored data from your browser.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Suggestions -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search Suggestions <span class="prv-badge prv-badge-always">Always On When Enabled</span>
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>When you type in the search bar, your query is sent to the selected search engine's public autocomplete API to fetch suggestions. This is the same request your browser makes natively when you type in the address bar.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Google, DuckDuckGo, Brave, Ecosia, and Startpage all fetch suggestions via Google's public suggest endpoint. DuckDuckGo's own autocomplete blocks browser extensions, so Google's endpoint is used for the suggestion dropdown — your actual search still goes to whichever engine you've selected.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Bing fetches suggestions from its own public suggestion API directly.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Suggestions are cached in memory only for the duration of the current tab session and are discarded the moment you close or reload the tab.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>You can disable suggestions entirely at any time via Settings → Search → Show Suggestions.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pixabay -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Pixabay Backgrounds <span class="prv-badge prv-badge-opt">Optional</span>
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Pixabay integration is entirely optional. It only activates if you manually enter your own personal Pixabay API key in Settings → Wallpaper. Nothing is fetched otherwise.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>When active, your search query and API key are sent directly from your browser to Pixabay's API. ZenR is not involved in this request in any way — it is a direct connection between your browser and Pixabay.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Your Pixabay API key is stored locally on your device and is never transmitted to anyone other than Pixabay itself.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Fetched media links are saved locally. The actual images and videos stream directly from Pixabay's CDN to your browser — ZenR never proxies or stores that media.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>You can remove your Pixabay key and all fetched media at any time using the Remove Key button in Wallpaper settings.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Moody Effects (Freesound) -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          Moody Effects — Ambient Sounds <span class="prv-badge prv-badge-opt">Optional</span>
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Moody Effects is entirely optional. It only activates if you manually enter your own personal Freesound API key in Settings → Moody Effects. No network requests are made otherwise.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>When you open a sound category, your search query and API key are sent directly from your browser to the Freesound API (<code>freesound.org/apiv2</code>). ZenR is not involved in that request — it is a direct connection between your browser and Freesound.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Audio streams directly from Freesound's CDN to your browser. ZenR never proxies, caches to disk, or stores audio data of any kind.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Your Freesound API key is stored locally in the browser using the same storage API as all other ZenR settings. It is never transmitted to anyone other than Freesound itself when a search is performed.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p><strong>Backups &amp; Exports:</strong> Your Freesound API key is included in JSON exports so your settings are preserved when you import them manually. It is <strong>not</strong> included in GitHub Gist backups. Treat export files like credential files and do not share them with others.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>You can remove your key at any time using the Remove button in Settings → Moody Effects. This immediately stops all playback and clears the key from local storage.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- GitHub Gist -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          GitHub Gist Backup <span class="prv-badge prv-badge-opt">Optional</span>
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>GitHub Gist backup is completely optional. It only activates if you choose to enter a GitHub Personal Access Token (PAT) in Settings → Backup.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Your PAT is stored locally on your device and is only ever sent directly to GitHub's API as an authentication token — never to ZenR or any third party.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p><strong>Backups &amp; Exports:</strong> Your GitHub token is <strong>never</strong> included in Gist backups or JSON exports — it stays on your device only. When setting up ZenR on a new device, you will need to re-enter your token once in Settings → Backup.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Backups are triggered manually via the "Backup Now" button, or on a 24-hour auto-sync interval. A backup is never fired automatically on every single change you make.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>To minimise risk, your GitHub token should be created with only the <strong>gist</strong> scope enabled — no repository access, no user data, no admin permissions of any kind.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>Your backup file is stored as a private GitHub Gist under your own GitHub account. ZenR has absolutely no access to it.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>You can revoke the token directly from your GitHub account settings at any time to permanently cut off access.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Issue Reports -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Issue Reports <span class="prv-badge prv-badge-opt">Optional</span>
+        </div>
+        <div class="prv-list">
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>The "Report an Issue" form is entirely optional. Nothing is sent to anyone unless you explicitly click the Send Report button.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>When you submit a report, your message and optional name are processed by Formbold, a third-party form service. Any screenshots you attach are optionally uploaded via Catbox.moe. Both are independent services with their own privacy policies.</p>
+          </div>
+          <div class="prv-item">
+            <span class="prv-dot"></span>
+            <p>No metadata about your bookmarks, notes, settings, or browsing activity is ever attached to a report. Only the text you write and the images you choose to upload are included.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Never Does -->
+      <div class="prv-section">
+        <div class="prv-section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          What ZenR Never Does
+        </div>
+        <div class="prv-list prv-list-never">
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never tracks your browsing history or which links you click.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never sends your bookmarks, notes, or settings to any remote server.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never uses cookies, fingerprinting, or any form of user identification.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never displays ads or uses advertiser-injected scripts.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never requests permissions beyond what is declared in the extension manifest.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never auto-syncs or phones home without your explicit action.</p></div>
+          <div class="prv-item"><span class="prv-dot prv-dot-red"></span><p>Never stores, caches, or transmits audio data — Moody Effects streams sound directly from Freesound's CDN to your browser with no ZenR intermediary.</p></div>
+        </div>
+      </div>
+
+      <div class="prv-footer">
+        Made with <span class="prv-heart">&#10084;</span> by Archimetrix &nbsp;·&nbsp; Questions? Use the Report panel above.
+      </div>
+    </div>
+  </div>
+
   <!-- Notes widgets are created dynamically by JS -->
   <input type="file" id="notes-img-input" accept="image/*" style="display:none">
 
   <!-- Clock Widget -->
   <div id="clock-widget" class="hidden clock-style-glass">
     <div class="clock-inner">
-      <span id="clock-time">00:00</span>
+      <span id="clock-time"><span class="clock-time-main">00:00</span></span>
       <div id="clock-date"></div>
     </div>
   </div>
 
-  <!-- Calculator Widget -->
+  <!-- Countdown Widget -->
+  <div id="countdown-widget" class="hidden">
+    <div class="cd-pill">
+      <div class="cd-event-name" id="cd-event-name-display">Event Name</div>
+      <div class="cd-target-date" id="cd-target-display"></div>
+      <div class="cd-units">
+        <div class="cd-unit">
+          <span class="cd-unit-val" id="cd-days">00</span>
+          <span class="cd-unit-label">Days</span>
+        </div>
+        <div class="cd-sep">:</div>
+        <div class="cd-unit">
+          <span class="cd-unit-val" id="cd-hours">00</span>
+          <span class="cd-unit-label">Hours</span>
+        </div>
+        <div class="cd-sep">:</div>
+        <div class="cd-unit">
+          <span class="cd-unit-val" id="cd-mins">00</span>
+          <span class="cd-unit-label">Mins</span>
+        </div>
+        <div class="cd-sep">:</div>
+        <div class="cd-unit">
+          <span class="cd-unit-val" id="cd-secs">00</span>
+          <span class="cd-unit-label">Secs</span>
+        </div>
+      </div>
+      <div class="cd-bar-wrap">
+        <div class="cd-bar-fill" id="cd-bar-fill" style="width:100%"></div>
+      </div>
+    </div>
+  </div>
   <div id="calc-widget" class="calc-widget hidden">
     <div class="calc-header">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
@@ -1150,10 +1721,51 @@
   </div>
 
   <!-- Toast -->
+  <!-- ══ MOODY FLOATING PILL PLAYER ══ -->
+  <div id="moody-pill" class="moody-pill hidden" draggable="false">
+    <div class="moody-pill-drag-handle" id="moody-pill-handle">
+      <div class="moody-pill-bars" id="moody-pill-bars">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="moody-pill-title" id="moody-pill-title">—</div>
+    <div class="moody-pill-controls">
+      <button class="moody-pill-btn" id="moody-pill-prev" title="Previous">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2.5"/></svg>
+      </button>
+      <button class="moody-pill-btn moody-pill-pp" id="moody-pill-pp" title="Play/Pause">
+        <svg class="moody-pill-play" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg class="moody-pill-pause hidden" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button class="moody-pill-btn" id="moody-pill-next" title="Next">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"/></svg>
+      </button>
+      <button class="moody-pill-btn moody-pill-repeat" id="moody-pill-repeat" title="Repeat: Off">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+    <div class="moody-pill-progress"><div class="moody-pill-progress-fill" id="moody-pill-pfill"></div></div>
+  </div>
+
   <div id="toast-container"></div>
 
-  <!-- INTRO VIDEO OVERLAY -->
-  <div id="intro-overlay">
+  <!-- ── UPDATE AVAILABLE BANNER — persists until dismissed or downloaded ── -->
+  <div id="update-banner" class="update-banner hidden">
+    <div class="update-banner-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </div>
+    <div class="update-banner-text">
+      <strong>Update available</strong>
+      <span id="update-banner-version">A new version of ZenR-NewTab is ready</span>
+    </div>
+    <div class="update-banner-actions">
+      <button id="update-banner-download" class="update-banner-btn-primary">Download</button>
+      <button id="update-banner-dismiss" class="update-banner-btn-x" title="Dismiss">&#10005;</button>
+    </div>
+  </div>
+
+  <!-- INTRO VIDEO OVERLAY — starts hidden; JS removes the class only on first install -->
+  <div id="intro-overlay" class="intro-hidden">
     <video id="intro-video" src="intro.mp4" playsinline></video>
   </div>
 
