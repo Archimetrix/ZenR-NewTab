@@ -6,7 +6,7 @@
 
 <p><strong>A liquid-glass new tab experience for Firefox & Chromium browsers</strong></p>
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.2-blue?style=for-the-badge)
 [![Firefox](https://img.shields.io/badge/Firefox-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white)](#)
 [![Chromium](https://img.shields.io/badge/Chromium%20Browsers-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red?style=for-the-badge)](#)
