@@ -59,10 +59,6 @@
     <img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Get it from Microsoft Edge Add-ons" height="56">
   </a>
   &nbsp;
-  <a href="#" target="_blank">
-    <img src="https://raw.githubusercontent.com/Archimetrix/ZenR-NewTab/main/Images/operastore.png" alt="Get it from Opera Add-ons" height="56">
-  </a>
-  &nbsp;
   <a href="https://github.com/Archimetrix/ZenR-NewTab/releases/latest/download/ZenR-NewTab.zip" target="_blank">
     <img src="https://img.shields.io/badge/Download_ZIP-101010?style=for-the-badge&logo=github&logoColor=white" alt="Download ZIP" height="56">
   </a>
