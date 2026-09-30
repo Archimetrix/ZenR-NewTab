@@ -50,18 +50,16 @@
 
 > ⚠️ **Demo structure — store listings are not live yet.** Store buttons will be activated once the extension is approved. In the meantime, use the **Download ZIP** button and follow the **Local Installation** guide below.
 
-<p>
-  <a href="#" target="_blank">
-    <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Add-on for Firefox" height="56">
-  </a>
-  &nbsp;
-  <a href="#" target="_blank">
-    <img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Get it from Microsoft Edge Add-ons" height="56">
-  </a>
-  &nbsp;
-  <a href="https://github.com/Archimetrix/ZenR-NewTab/releases/latest/download/ZenR-NewTab.zip" target="_blank">
-    <img src="https://img.shields.io/badge/Download_ZIP-101010?style=for-the-badge&logo=github&logoColor=white" alt="Download ZIP" height="56">
-  </a>
+<p float="left">
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/zenr-newtab/" target="_blank">
+    <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Add-on for Firefox" height="56">
+  </a>
+  <a href="https://microsoftedge.microsoft.com/addons/detail/zenrnewtab/dnglbchdelkhbiadjdlapgmhjkjflppf" target="_blank">
+    <img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Get it from Microsoft Edge" height="56">
+  </a>
+  <a href="https://github.com/Archimetrix/ZenR-NewTab/archive/refs/heads/main.zip" target="_blank">
+    <img src="https://img.shields.io/badge/Download_ZIP-101010?style=for-the-badge&logo=github&logoColor=white" alt="Download ZIP" height="56">
+  </a>
 </p>
 
 ---
