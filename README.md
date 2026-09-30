@@ -48,7 +48,6 @@
 
 ## 📥 Download
 
-> ⚠️ **Demo structure — store listings are not live yet.** Store buttons will be activated once the extension is approved. In the meantime, use the **Download ZIP** button and follow the **Local Installation** guide below.
 
 <p float="left">
   <a href="https://addons.mozilla.org/en-US/firefox/addon/zenr-newtab/" target="_blank">
