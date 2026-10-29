@@ -4,7 +4,7 @@
 
 <h1>ZenR · NewTab</h1>
 
-<p><strong>A liquid-glass new tab experience for Firefox & Chromium browsers</strong></p>
+<p><strong>A liquid-glass new tab experience for Firefox & Chromium browsers(This extension is nomore maintained by me cause focusing on other extensions and its not possible for me to handle multiple projects - so from now on this project is a depreciated project still code is public anyone can fork and maintain it ))</strong></p>
 
 ![Version](https://img.shields.io/badge/version-2.2-blue?style=for-the-badge)
 [![Firefox](https://img.shields.io/badge/Firefox-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white)](#)
