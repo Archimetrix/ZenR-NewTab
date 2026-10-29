@@ -21,6 +21,7 @@
 <br/>
 
 > ZenR replaces your browser's default new tab with a beautiful, glass-morphic bookmark manager. Organize your links across pages and boards, personalize every visual detail, and set live video or image wallpapers — all without leaving the tab. Works on Firefox, Chrome, Edge, Opera, Brave, Vivaldi, and all Chromium-based browsers.
+> **THE EXTENSION IS NOT MAINTAINED ANYMORE -- ⚠️**
 
 <br/>
 
